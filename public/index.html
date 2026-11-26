@@ -1,0 +1,2785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Task Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen antialiased transition-colors duration-150">
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2"></div>
+
+  <!-- =========================================================
+       LOGIN SCREEN (Clean, Simple Business Login)
+  ========================================================== -->
+  <div id="login-view" class="min-h-screen flex items-center justify-center p-4 bg-slate-100 dark:bg-slate-900">
+    <div class="w-full max-w-md bg-white dark:bg-slate-800 rounded-xl p-8 shadow-sm border border-slate-200 dark:border-slate-700">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg">
+          T
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 dark:text-white">Task Manager</h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Fast Workspace Portal • Synced with Taskify</p>
+        </div>
+      </div>
+
+      <p class="text-xs text-slate-600 dark:text-slate-300 mb-5 bg-slate-50 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+        Sign in with your existing <strong>Super Admin / Admin</strong> account from the main application. All projects, tasks, meetings, and roles are shared live.
+      </p>
+
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Email Address</label>
+          <input type="email" id="login-email" required placeholder="haris@docman.ae or admin@gmail.com"
+            class="w-full px-3.5 py-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Password</label>
+          <input type="password" id="login-password" required placeholder="••••••••"
+            class="w-full px-3.5 py-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm" />
+        </div>
+        <div id="login-error" class="hidden text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2"></div>
+        <button type="submit" id="login-btn"
+          class="w-full py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+          <span>Sign In</span>
+          <i data-lucide="arrow-right" class="w-4 h-4"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MAIN DASHBOARD LAYOUT (Desktop Sidebar + Mobile Slide-Over Drawer + Bottom Nav)
+  ========================================================== -->
+  <div id="app-view" class="hidden min-h-screen flex flex-col lg:flex-row pb-16 lg:pb-0">
+
+    <!-- MOBILE SIDEBAR BACKDROP -->
+    <div id="mobile-sidebar-backdrop" onclick="toggleMobileSidebar(false)"
+      class="hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs lg:hidden"></div>
+
+    <!-- SIDEBAR (Slide-over drawer on mobile, fixed rail on desktop) -->
+    <aside id="app-sidebar"
+      class="fixed inset-y-0 left-0 z-50 w-72 lg:w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col justify-between shrink-0 transform -translate-x-full lg:translate-x-0 lg:static transition-transform duration-200 ease-out shadow-2xl lg:shadow-none overflow-y-auto custom-scrollbar">
+      <div>
+        <!-- Brand Header -->
+        <div class="h-16 px-4 sm:px-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between shrink-0">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+              T
+            </div>
+            <div>
+              <span class="font-bold text-slate-900 dark:text-white text-sm block leading-none">Task Manager</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">Workspace Dashboard</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button id="theme-toggle-btn" title="Switch Light / Dark Mode"
+              class="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">
+              <i data-lucide="sun-moon" class="w-4 h-4"></i>
+            </button>
+            <button type="button" onclick="toggleMobileSidebar(false)" title="Close Menu"
+              class="lg:hidden p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Workspace Selector -->
+        <div class="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+          <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+            Active Workspace
+          </label>
+          <select id="global-workspace-select"
+            class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-blue-600">
+            <option value="all">All Workspaces (Company-Wide)</option>
+          </select>
+        </div>
+
+        <!-- Navigation Menu -->
+        <nav class="p-3 space-y-1">
+          <div class="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Main Views</div>
+
+          <button data-tab="overview" class="nav-tab w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-semibold transition bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+              <span>Executive Summary</span>
+            </span>
+          </button>
+
+          <button data-tab="projects" class="nav-tab w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="folder-kanban" class="w-4 h-4"></i>
+              <span>Projects</span>
+            </span>
+            <span id="nav-projects-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold">0</span>
+          </button>
+
+          <button data-tab="tasks" class="nav-tab w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="check-square" class="w-4 h-4"></i>
+              <span>Tasks & Time Slots</span>
+            </span>
+            <span id="nav-tasks-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold">0</span>
+          </button>
+
+          <button data-tab="meetings" class="nav-tab w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="calendar-clock" class="w-4 h-4"></i>
+              <span>Meetings & Agendas</span>
+            </span>
+            <span id="nav-meetings-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold">0</span>
+          </button>
+
+          <div id="people-sidebar-section" class="pt-3 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">People & Access</div>
+
+          <button data-tab="team" data-perm="manage_users" class="nav-tab perm-gated-nav w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="users" class="w-4 h-4"></i>
+              <span>Team & Workload</span>
+            </span>
+            <span id="nav-users-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold">0</span>
+          </button>
+
+          <button data-tab="clients" data-perm="manage_clients" class="nav-tab perm-gated-nav w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="building-2" class="w-4 h-4"></i>
+              <span>Clients</span>
+            </span>
+            <span id="nav-clients-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold">0</span>
+          </button>
+
+          <button data-tab="workspaces" data-perm="manage_workspaces" class="nav-tab perm-gated-nav w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="layers" class="w-4 h-4"></i>
+              <span>Workspaces</span>
+            </span>
+            <span id="nav-workspaces-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold">0</span>
+          </button>
+
+          <div id="admin-sidebar-section" class="pt-3 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Automation & Admin</div>
+
+          <button data-tab="cron" data-perm="manage_system_notifications" class="nav-tab perm-gated-nav admin-section-item w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="bell-ring" class="w-4 h-4"></i>
+              <span>Auto-Cron & Emails</span>
+            </span>
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          </button>
+
+          <button data-tab="email-settings" id="nav-btn-email-settings" data-strict-admin="true" class="nav-tab perm-gated-nav admin-section-item w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="mail-check" class="w-4 h-4"></i>
+              <span>Email Settings (SMTP)</span>
+            </span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300 font-semibold">Admin</span>
+          </button>
+
+          <button data-tab="settings" data-perm="manage_statuses,manage_priorities,manage_tags" class="nav-tab perm-gated-nav admin-section-item w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="sliders" class="w-4 h-4"></i>
+              <span id="nav-settings-label">Statuses, Roles & Tags</span>
+            </span>
+          </button>
+
+          <button data-tab="activity" data-perm="manage_activity_log,manage_leave_requests" class="nav-tab perm-gated-nav admin-section-item w-full flex items-center justify-between px-3 py-2.5 lg:py-2 rounded-lg text-xs font-medium transition text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60">
+            <span class="flex items-center gap-2.5">
+              <i data-lucide="history" class="w-4 h-4"></i>
+              <span>Audit Log & Leaves</span>
+            </span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- User Profile Footer -->
+      <div class="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 space-y-2.5">
+        <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+          <span class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            Cron + DB Sync
+          </span>
+          <span id="query-speed-badge" class="font-mono font-semibold text-slate-700 dark:text-slate-300">~15 ms</span>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/80 dark:border-slate-700">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div id="user-avatar" class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-xs shrink-0">
+              CA
+            </div>
+            <div class="min-w-0">
+              <p id="user-name" class="text-xs font-semibold text-slate-900 dark:text-white truncate">Admin</p>
+              <p id="user-role-badge" class="text-[10px] text-slate-500 dark:text-slate-400 truncate">Super Admin</p>
+            </div>
+          </div>
+          <button id="logout-btn" title="Sign Out"
+            class="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+            <i data-lucide="log-out" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex flex-col min-w-0">
+
+      <!-- TOP HEADER (Mobile-first responsive toolbar) -->
+      <header class="sticky top-0 z-30 min-h-14 lg:h-16 px-3 sm:px-6 py-2 bg-white/95 dark:bg-slate-800/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 sm:gap-4 shrink-0">
+        <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+          <!-- Mobile Hamburger -->
+          <button type="button" id="mobile-menu-btn" onclick="toggleMobileSidebar(true)" title="Open Menu"
+            class="lg:hidden p-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 shrink-0">
+            <i data-lucide="menu" class="w-5 h-5"></i>
+          </button>
+          <h2 id="page-title" class="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">Executive Summary</h2>
+          <span id="active-workspace-pill" class="hidden sm:inline-block text-xs px-2.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium border border-slate-200 dark:border-slate-600 truncate max-w-[160px]">
+            All Workspaces
+          </span>
+        </div>
+
+        <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <!-- NOTIFICATION BELL & DROPDOWN -->
+          <div class="relative">
+            <button id="notif-bell-btn" title="Notifications & @Mentions"
+              class="relative p-2 rounded-lg bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 transition">
+              <i data-lucide="bell" class="w-4 h-4"></i>
+              <span id="notif-unread-badge" class="hidden absolute -top-1.5 -right-1.5 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-bold shadow">
+                0
+              </span>
+            </button>
+
+            <!-- Dropdown Panel -->
+            <div id="notif-dropdown" class="hidden fixed sm:absolute right-2 sm:right-0 top-14 sm:top-auto sm:mt-2 w-[calc(100vw-1rem)] sm:w-96 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+              <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
+                <div>
+                  <h4 class="text-xs font-bold text-slate-900 dark:text-white">Notifications & @Mentions</h4>
+                  <p class="text-[10px] text-slate-500">Click any notification to jump directly to the task or project</p>
+                </div>
+                <button onclick="markAllNotificationsRead()" class="text-[11px] text-blue-600 hover:underline font-medium shrink-0">
+                  Mark all read
+                </button>
+              </div>
+              <div id="notif-list-container" class="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700 text-xs custom-scrollbar"></div>
+            </div>
+          </div>
+
+          <button id="open-customize-btn" title="Customize View"
+            class="hidden md:flex px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium items-center gap-1.5 border border-slate-300 dark:border-slate-600 transition">
+            <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+            <span class="hidden xl:inline">Customize View</span>
+          </button>
+
+          <button id="refresh-data-btn" title="Refresh"
+            class="p-2 sm:px-3 sm:py-1.5 rounded-lg bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium flex items-center gap-1.5 border border-slate-300 dark:border-slate-600 transition">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span class="hidden xl:inline">Refresh</span>
+          </button>
+
+          <button onclick="openMeetingModal()" data-perm="create_meetings" title="Schedule Meeting"
+            class="perm-gated-btn p-2 sm:px-3 sm:py-1.5 rounded-lg bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-800 dark:text-white text-xs font-semibold flex items-center gap-1.5 border border-slate-300 dark:border-slate-600 transition">
+            <i data-lucide="calendar-plus" class="w-4 h-4 sm:w-3.5 sm:h-3.5 text-emerald-600"></i>
+            <span class="hidden sm:inline">+ Meeting</span>
+          </button>
+
+          <button id="quick-new-task-btn" data-perm="create_tasks" title="New Task"
+            class="perm-gated-btn p-2 sm:px-3 sm:py-1.5 rounded-lg bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600 text-slate-800 dark:text-white text-xs font-semibold flex items-center gap-1.5 border border-slate-300 dark:border-slate-600 transition">
+            <i data-lucide="plus" class="w-4 h-4 sm:w-3.5 sm:h-3.5 text-blue-600"></i>
+            <span class="hidden sm:inline">+ Task</span>
+          </button>
+
+          <button id="quick-new-project-btn" data-perm="create_projects" title="New Project"
+            class="perm-gated-btn px-2.5 py-2 sm:px-3.5 sm:py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition">
+            <i data-lucide="folder-plus" class="w-4 h-4 sm:w-3.5 sm:h-3.5"></i>
+            <span class="hidden sm:inline">+ New Project</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- MOBILE BOTTOM NAVIGATION BAR (Easy thumb navigation on phones) -->
+      <nav id="mobile-bottom-nav" class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 grid grid-cols-5 h-16 px-1 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
+        <button type="button" onclick="switchTab('overview')" data-mobile-tab="overview" class="mobile-nav-btn flex flex-col items-center justify-center gap-0.5 text-[10px] font-semibold text-blue-600">
+          <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+          <span>Home</span>
+        </button>
+        <button type="button" onclick="switchTab('projects')" data-mobile-tab="projects" class="mobile-nav-btn flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+          <i data-lucide="folder-kanban" class="w-5 h-5"></i>
+          <span>Projects</span>
+        </button>
+        <button type="button" onclick="switchTab('tasks')" data-mobile-tab="tasks" class="mobile-nav-btn flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+          <i data-lucide="check-square" class="w-5 h-5"></i>
+          <span>Tasks</span>
+        </button>
+        <button type="button" onclick="switchTab('meetings')" data-mobile-tab="meetings" class="mobile-nav-btn flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+          <i data-lucide="calendar-clock" class="w-5 h-5"></i>
+          <span>Meetings</span>
+        </button>
+        <button type="button" onclick="toggleMobileSidebar(true)" class="flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+          <span>More</span>
+        </button>
+      </nav>
+
+      <!-- CUSTOMIZE WIDGETS DRAWERBAR (Hidden by default) -->
+      <div id="customize-bar" class="hidden px-6 py-3 bg-slate-100 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div class="flex flex-wrap items-center gap-4">
+          <span class="font-semibold text-slate-700 dark:text-slate-200">Show / Hide Executive Panels:</span>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" class="widget-toggle rounded text-blue-600" data-target="widget-kpis" checked />
+            <span>Top Summary Cards</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" class="widget-toggle rounded text-blue-600" data-target="widget-today-command" checked />
+            <span>Today's Schedule, Meetings & Agendas</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" class="widget-toggle rounded text-blue-600" data-target="widget-exec-calendar" checked />
+            <span>Central Activity Calendar</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" class="widget-toggle rounded text-blue-600" data-target="widget-charts" checked />
+            <span>Visual Charts</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" class="widget-toggle rounded text-blue-600" data-target="widget-projects-team" checked />
+            <span>Project Progress & Team Workload</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" class="widget-toggle rounded text-blue-600" data-target="widget-tasks-todos" checked />
+            <span>All Open Tasks & CEO Checklist</span>
+          </label>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-slate-600 dark:text-slate-300 font-medium">From:</label>
+          <input type="date" id="overview-start-date" class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs" />
+          <label class="text-slate-600 dark:text-slate-300 font-medium">To:</label>
+          <input type="date" id="overview-end-date" class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs" />
+          <button id="apply-date-filter-btn" class="px-2.5 py-1 rounded bg-blue-600 text-white font-medium">Apply</button>
+          <button id="clear-date-filter-btn" class="px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">Reset</button>
+        </div>
+      </div>
+
+      <!-- SCROLLABLE PAGE CONTENT -->
+      <div class="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6 space-y-4 sm:space-y-6 custom-scrollbar">
+
+        <!-- =====================================================
+             TAB 1: EXECUTIVE SUMMARY (One Panel to Know Where We Stand)
+        ====================================================== -->
+        <section id="tab-overview" class="tab-panel space-y-6">
+
+          <!-- 1. TOP KPI CARDS (5 Cards including TODAY'S TASK COVERAGE) -->
+          <div id="widget-kpis" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+
+            <!-- CARD 1: TODAY'S TASK COVERAGE (Highlighted for CEO) -->
+            <div class="p-5 rounded-xl bg-white dark:bg-slate-800 border-2 border-blue-500/80 dark:border-blue-500/70 shadow-sm flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-400">
+                  <span>TODAY'S TASKS COVERAGE</span>
+                  <span class="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+                    <i data-lucide="calendar-check-2" class="w-4 h-4"></i>
+                  </span>
+                </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                  <div class="flex items-baseline gap-1.5">
+                    <span id="kpi-today-covered" class="text-2xl font-extrabold text-emerald-600">0</span>
+                    <span class="text-sm text-slate-400 font-semibold">/</span>
+                    <span id="kpi-today-total" class="text-2xl font-extrabold text-slate-900 dark:text-white">0</span>
+                    <span class="text-xs text-slate-500 font-medium">Covered</span>
+                  </div>
+                  <span id="kpi-today-pct" class="text-xs font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">0%</span>
+                </div>
+                <div class="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden mt-2">
+                  <div id="kpi-today-bar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+                </div>
+              </div>
+              <div class="mt-3 pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
+                <span>Remaining Today: <strong id="kpi-today-remaining" class="text-amber-600">0</strong></span>
+                <button onclick="openTaskModal()" class="text-blue-600 font-semibold hover:underline">+ Add Today</button>
+              </div>
+            </div>
+
+            <!-- CARD 2: Total Projects -->
+            <div onclick="switchTab('projects')" class="cursor-pointer p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:border-blue-400 transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  <span>Projects Portfolio</span>
+                  <span class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                    <i data-lucide="folder-kanban" class="w-4 h-4"></i>
+                  </span>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                  <span id="kpi-total-projects" class="text-2xl font-bold text-slate-900 dark:text-white">0</span>
+                  <span id="kpi-active-projects" class="text-xs text-blue-600 dark:text-blue-400 font-medium">0 active</span>
+                </div>
+              </div>
+              <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
+                <span>Completed: <strong id="kpi-completed-projects" class="text-slate-800 dark:text-slate-200">0</strong></span>
+                <span>Overdue: <strong id="kpi-overdue-projects" class="text-red-600">0</strong></span>
+              </div>
+            </div>
+
+            <!-- CARD 3: Overall Tasks -->
+            <div onclick="switchTab('tasks')" class="cursor-pointer p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:border-blue-400 transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  <span>All Tasks Progress</span>
+                  <span class="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                    <i data-lucide="check-square" class="w-4 h-4"></i>
+                  </span>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                  <span id="kpi-total-tasks" class="text-2xl font-bold text-slate-900 dark:text-white">0</span>
+                  <span id="kpi-completion-rate" class="text-xs text-emerald-600 dark:text-emerald-400 font-medium">0% done</span>
+                </div>
+              </div>
+              <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
+                <span>Done: <strong id="kpi-completed-tasks" class="text-emerald-600">0</strong></span>
+                <span>In Progress: <strong id="kpi-inprogress-tasks" class="text-slate-800 dark:text-slate-200">0</strong></span>
+              </div>
+            </div>
+
+            <!-- CARD 4: Needs Attention / Bottlenecks -->
+            <div onclick="switchTab('tasks')" class="cursor-pointer p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:border-blue-400 transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  <span>Overdue & Bottlenecks</span>
+                  <span class="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                    <i data-lucide="alert-circle" class="w-4 h-4"></i>
+                  </span>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                  <span id="kpi-overdue-tasks" class="text-2xl font-bold text-red-600">0</span>
+                  <span class="text-xs text-slate-500">overdue tasks</span>
+                </div>
+              </div>
+              <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
+                <span>Due Today: <strong id="kpi-duetoday-tasks" class="text-amber-600">0</strong></span>
+                <span>Avg Completion: <strong id="kpi-avg-progress" class="text-slate-800 dark:text-slate-200">0%</strong></span>
+              </div>
+            </div>
+
+            <!-- CARD 5: Today's Meetings & Team -->
+            <div onclick="switchTab('meetings')" class="cursor-pointer p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:border-blue-400 transition flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium">
+                  <span>Meetings & Team</span>
+                  <span class="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                    <i data-lucide="calendar-clock" class="w-4 h-4"></i>
+                  </span>
+                </div>
+                <div class="mt-2 flex items-baseline gap-2">
+                  <span id="kpi-today-meetings" class="text-2xl font-bold text-slate-900 dark:text-white">0</span>
+                  <span class="text-xs text-emerald-600 font-medium">meetings today</span>
+                </div>
+              </div>
+              <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
+                <span>Team: <strong id="kpi-total-users" class="text-slate-800 dark:text-slate-200">0</strong></span>
+                <span>Workspaces: <strong id="kpi-total-workspaces" class="text-slate-800 dark:text-slate-200">0</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===============================================================
+               2. TODAY'S COMMAND PANEL: TODAY'S TASKS (TIME-SLOTS) & MEETINGS/AGENDAS
+          ================================================================ -->
+          <div id="widget-today-command" class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+            <!-- Left 2 Cols: Today's Scheduled & Time-Slot Tasks (e.g., 9:00 AM - 11:00 AM) -->
+            <div class="xl:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col justify-between">
+              <div>
+                <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 bg-slate-50/60 dark:bg-slate-800/60">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                      <h3 class="text-sm font-bold text-slate-900 dark:text-white">Today's Action Plan & Time-Slot Tasks</h3>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">Shows tasks scheduled for today, their time slots (e.g. 9:00 AM – 11:00 AM), and what is covered vs remaining</p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button onclick="openTaskModal()" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">
+                      + Schedule Time-Slot Task
+                    </button>
+                  </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse">
+                    <thead>
+                      <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-500 uppercase">
+                        <th class="py-2.5 px-4">Time Slot</th>
+                        <th class="py-2.5 px-3">Task & Project</th>
+                        <th class="py-2.5 px-3">Assigned To</th>
+                        <th class="py-2.5 px-3">Priority</th>
+                        <th class="py-2.5 px-3">Status (Mark Covered)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="overview-today-tasks-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="px-5 py-3 bg-slate-50/70 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
+                <span>Tip: Set a task as <strong>Recurring (Daily/Weekly)</strong> so the Cron Job creates & emails it automatically.</span>
+                <button onclick="switchTab('cron')" data-perm="manage_system_notifications" class="perm-gated-nav text-blue-600 dark:text-blue-400 font-semibold hover:underline">Cron & Email Settings →</button>
+              </div>
+            </div>
+
+            <!-- Right 1 Col: Today's & Upcoming Meetings & Agendas -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col justify-between">
+              <div>
+                <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50/60 dark:bg-slate-800/60">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                      <h3 class="text-sm font-bold text-slate-900 dark:text-white">Meetings & Agendas</h3>
+                    </div>
+                    <p class="text-xs text-slate-500 mt-0.5">Today's & upcoming schedule</p>
+                  </div>
+                  <button onclick="openMeetingModal()" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold">
+                    + Add Meeting
+                  </button>
+                </div>
+
+                <div id="overview-meetings-list" class="p-4 space-y-3 max-h-80 overflow-y-auto custom-scrollbar"></div>
+              </div>
+
+              <div class="px-5 py-3 bg-slate-50/70 dark:bg-slate-900/40 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                <span class="text-slate-500">Auto-emails attendees on creation</span>
+                <button onclick="switchTab('meetings')" class="text-blue-600 dark:text-blue-400 font-semibold hover:underline">All Meetings →</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2B. CENTRAL EXECUTIVE ACTIVITY CALENDAR (Daily Done, Started, Planned, Meetings & Activity) -->
+          <div id="widget-exec-calendar" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <!-- Calendar Header -->
+            <div class="px-4 sm:px-5 py-3.5 border-b border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/70 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white">Central Daily Activity Calendar</h3>
+                </div>
+                <p class="text-xs text-slate-500 mt-0.5">Click any date to inspect what was <strong>Done</strong>, <strong>Started</strong>, <strong>Planned</strong>, Meetings, and Activity on that day</p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="inline-flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-1 text-xs">
+                  <button type="button" onclick="shiftExecCalendarMonth(-1)" class="px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 font-bold">←</button>
+                  <span id="exec-cal-month-label" class="px-2.5 font-bold text-slate-800 dark:text-white min-w-[115px] text-center">Month</span>
+                  <button type="button" onclick="shiftExecCalendarMonth(1)" class="px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 font-bold">→</button>
+                </div>
+                <button type="button" onclick="shiftExecCalendarMonth(0)" class="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold hover:bg-blue-100">
+                  Today
+                </button>
+              </div>
+            </div>
+
+            <!-- Legend Bar -->
+            <div class="px-4 sm:px-5 py-2 border-b border-slate-100 dark:border-slate-700/80 bg-white dark:bg-slate-800 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> <strong>Done</strong></span>
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span> <strong>Started / In Progress</strong></span>
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> <strong>Planned</strong></span>
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-teal-600"></span> <strong>Meetings</strong></span>
+              <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-500"></span> <strong>Activity Log</strong></span>
+            </div>
+
+            <!-- Two-Column Body: Left Monthly Calendar Grid + Right Selected Day Detail Briefing -->
+            <div class="grid grid-cols-1 xl:grid-cols-12 divide-y xl:divide-y-0 xl:divide-x divide-slate-200 dark:divide-slate-700">
+              <!-- Left 7 Cols: Calendar Grid -->
+              <div class="xl:col-span-7 p-3 sm:p-4">
+                <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+                </div>
+                <div id="exec-cal-grid" class="grid grid-cols-7 gap-1 sm:gap-1.5"></div>
+              </div>
+
+              <!-- Right 5 Cols: Selected Day Central Briefing -->
+              <div class="xl:col-span-5 p-4 bg-slate-50/40 dark:bg-slate-900/30 flex flex-col">
+                <div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-slate-700">
+                  <div>
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">Selected Day Snapshot</span>
+                    <h4 id="exec-cal-selected-date-label" class="text-sm font-bold text-slate-900 dark:text-white">Today</h4>
+                  </div>
+                  <div id="exec-cal-day-pills" class="flex flex-wrap items-center justify-end gap-1 text-[10px] font-bold"></div>
+                </div>
+
+                <!-- Day Filter Pills -->
+                <div class="flex flex-wrap items-center gap-1.5 py-2.5 border-b border-slate-200/70 dark:border-slate-700/70 text-[11px]">
+                  <button type="button" data-day-tab="all" onclick="setExecCalDayFilter('all')" class="exec-cal-day-tab px-2.5 py-1 rounded-md bg-slate-900 dark:bg-blue-600 text-white font-bold">All</button>
+                  <button type="button" data-day-tab="done" onclick="setExecCalDayFilter('done')" class="exec-cal-day-tab px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">✓ Done</button>
+                  <button type="button" data-day-tab="started" onclick="setExecCalDayFilter('started')" class="exec-cal-day-tab px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">▶ Started</button>
+                  <button type="button" data-day-tab="planned" onclick="setExecCalDayFilter('planned')" class="exec-cal-day-tab px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">📋 Planned</button>
+                  <button type="button" data-day-tab="meetings" onclick="setExecCalDayFilter('meetings')" class="exec-cal-day-tab px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">📅 Meetings</button>
+                  <button type="button" data-day-tab="activities" onclick="setExecCalDayFilter('activities')" class="exec-cal-day-tab px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold">⚡ Activity</button>
+                </div>
+
+                <!-- Day Details List -->
+                <div id="exec-cal-day-details" class="pt-3 space-y-2.5 max-h-[380px] overflow-y-auto custom-scrollbar text-xs flex-1"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. SIMPLE VISUAL CHARTS -->
+          <div id="widget-charts" class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div class="p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Projects by Status</h3>
+              <div class="h-48">
+                <canvas id="chart-projects-status"></canvas>
+              </div>
+            </div>
+
+            <div class="p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Tasks by Status</h3>
+              <div class="h-48">
+                <canvas id="chart-tasks-status"></canvas>
+              </div>
+            </div>
+
+            <div class="p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Team Workload (Pending vs Done)</h3>
+              <div class="h-48">
+                <canvas id="chart-team-workload"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. PROJECT PROGRESS & TEAM WORKLOAD TABLES -->
+          <div id="widget-projects-team" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+
+            <!-- Project Status & Progress -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white">Active Projects & Delivery Progress</h3>
+                  <p class="text-xs text-slate-500">Click any project to inspect tasks & timeline</p>
+                </div>
+                <button onclick="switchTab('projects')" class="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                  View All Projects →
+                </button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-500 uppercase">
+                      <th class="py-2.5 px-4">Project</th>
+                      <th class="py-2.5 px-3">Status</th>
+                      <th class="py-2.5 px-3">Priority</th>
+                      <th class="py-2.5 px-3">Task Completion</th>
+                      <th class="py-2.5 px-4 text-right">Edit</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overview-projects-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Team Member Workload -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white">Team Accountability & Workload</h3>
+                  <p class="text-xs text-slate-500">Click a team member to view their tasks or send an instant email</p>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button onclick="openWorkloadReportView()" class="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold border border-emerald-200">
+                    📊 Workload Report
+                  </button>
+                  <button onclick="openNotifyModal()" class="px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold border border-blue-200">
+                    ✉ Notify Team
+                  </button>
+                </div>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-500 uppercase">
+                      <th class="py-2.5 px-4">Team Member</th>
+                      <th class="py-2.5 px-3">Role</th>
+                      <th class="py-2.5 px-3 text-center">Projects</th>
+                      <th class="py-2.5 px-3 text-center">Pending</th>
+                      <th class="py-2.5 px-3 text-center">Covered</th>
+                      <th class="py-2.5 px-4 text-center">Overdue</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overview-team-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. ALL OPEN TASKS & CEO QUICK CHECKLIST -->
+          <div id="widget-tasks-todos" class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="xl:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white">All Pending Tasks Backlog</h3>
+                  <p class="text-xs text-slate-500">Update task status directly from the dropdown</p>
+                </div>
+                <button onclick="switchTab('tasks')" class="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                  Full Task Manager →
+                </button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                  <thead>
+                    <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-500 uppercase">
+                      <th class="py-2.5 px-4">Task</th>
+                      <th class="py-2.5 px-3">Project</th>
+                      <th class="py-2.5 px-3">Time Slot</th>
+                      <th class="py-2.5 px-3">Assigned To</th>
+                      <th class="py-2.5 px-3">Status</th>
+                      <th class="py-2.5 px-4 text-right">Due Date</th>
+                    </tr>
+                  </thead>
+                  <tbody id="overview-urgent-tasks-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- CEO Personal Quick Checklist -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5 flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 class="text-sm font-bold text-slate-900 dark:text-white">My Executive Notes / Checklist</h3>
+                    <p class="text-xs text-slate-500">Quick personal reminders & action items</p>
+                  </div>
+                </div>
+
+                <form id="quick-todo-form" class="flex gap-2 mb-4">
+                  <input type="text" id="quick-todo-input" required placeholder="Add a quick reminder..."
+                    class="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600" />
+                  <button type="submit" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">
+                    Add
+                  </button>
+                </form>
+
+                <div id="overview-todos-list" class="space-y-2 max-h-64 overflow-y-auto custom-scrollbar"></div>
+              </div>
+
+              <div class="mt-4 pt-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                <span class="text-slate-500">Recent team activity logs</span>
+                <button onclick="switchTab('activity')" class="text-blue-600 dark:text-blue-400 font-medium hover:underline">Audit Log →</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =====================================================
+             TAB 2: PROJECTS
+        ====================================================== -->
+        <section id="tab-projects" class="tab-panel hidden space-y-4">
+          <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2.5 flex-1">
+              <div class="relative min-w-[200px] flex-1 max-w-xs">
+                <input type="text" id="filter-project-search" placeholder="Search projects..."
+                  class="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600" />
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
+              </div>
+
+              <select id="filter-project-status" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                <option value="">All Statuses</option>
+              </select>
+
+              <select id="filter-project-priority" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                <option value="">All Priorities</option>
+              </select>
+
+              <select id="filter-project-user" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                <option value="">All Team Members</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <div class="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs">
+                <button onclick="setProjectViewMode('table')" id="proj-view-btn-table" class="px-2.5 py-1.5 bg-blue-600 text-white font-medium">Table</button>
+                <button onclick="setProjectViewMode('cards')" id="proj-view-btn-cards" class="px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200">Cards</button>
+                <button onclick="setProjectViewMode('kanban')" id="proj-view-btn-kanban" class="px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200">Status Board</button>
+              </div>
+
+              <button onclick="exportProjectsCSV()"
+                class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium hover:bg-slate-50">
+                Export CSV
+              </button>
+
+              <button onclick="openProjectModal()"
+                class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                <span>New Project</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="projects-view-table" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold uppercase text-slate-500">
+                  <th class="py-3 px-4">Project</th>
+                  <th class="py-3 px-3">Workspace</th>
+                  <th class="py-3 px-3">Status (Quick Change)</th>
+                  <th class="py-3 px-3">Priority</th>
+                  <th class="py-3 px-3">Team</th>
+                  <th class="py-3 px-3">Progress</th>
+                  <th class="py-3 px-3">Dates</th>
+                  <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="projects-table-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+            </table>
+          </div>
+
+          <div id="projects-view-cards" class="hidden grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+          <div id="projects-view-kanban" class="hidden grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start"></div>
+        </section>
+
+        <!-- =====================================================
+             TAB 3: TASKS & TIME SLOTS
+        ====================================================== -->
+        <section id="tab-tasks" class="tab-panel hidden space-y-4">
+          <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2.5 flex-1">
+              <div class="relative min-w-[180px] flex-1 max-w-xs">
+                <input type="text" id="filter-task-search" placeholder="Search tasks..."
+                  class="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600" />
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2"></i>
+              </div>
+
+              <select id="filter-task-project" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs max-w-[200px]">
+                <option value="">All Projects</option>
+              </select>
+
+              <select id="filter-task-status" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                <option value="">All Statuses</option>
+              </select>
+
+              <select id="filter-task-priority" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                <option value="">All Priorities</option>
+              </select>
+
+              <select id="filter-task-user" class="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                <option value="">All Assignees</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <div class="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden text-xs">
+                <button onclick="setTaskViewMode('table')" id="task-view-btn-table" class="px-2.5 py-1.5 bg-blue-600 text-white font-medium">Table</button>
+                <button onclick="setTaskViewMode('kanban')" id="task-view-btn-kanban" class="px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200">Status Board</button>
+              </div>
+
+              <button onclick="exportTasksCSV()"
+                class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium hover:bg-slate-50">
+                Export CSV
+              </button>
+
+              <button onclick="openTaskModal()"
+                class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                <span>New Task</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="tasks-view-table" class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold uppercase text-slate-500">
+                  <th class="py-3 px-4">Task</th>
+                  <th class="py-3 px-3">Project</th>
+                  <th class="py-3 px-3">Time Slot & Schedule</th>
+                  <th class="py-3 px-3">Status</th>
+                  <th class="py-3 px-3">Priority</th>
+                  <th class="py-3 px-3">Assigned Users</th>
+                  <th class="py-3 px-3">Due Date</th>
+                  <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tasks-table-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+            </table>
+          </div>
+
+          <div id="tasks-view-kanban" class="hidden grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start"></div>
+        </section>
+
+        <!-- =====================================================
+             TAB 4: MEETINGS, ATTENDANCE, MINUTES OF MEETING (MoM) & MONTHLY EXECUTIVE REPORT
+        ====================================================== -->
+        <section id="tab-meetings" class="tab-panel hidden space-y-5">
+          <!-- Header & Mode Switcher -->
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Meetings, Attendance & Minutes of Meeting (MoM) Hub</h3>
+                <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">Auto-Email & Monthly Report</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">
+                Schedule Team or Individual 1-on-1 recurring meetings, mark live attendance, record Minutes of Meeting (MoM) & team highlights, and generate the End-of-Month Higher Management Report.
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-900 p-1 border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                <button type="button" id="btn-meetings-view-calendar" onclick="setMeetingsTabMode('calendar')"
+                  class="px-3 py-1.5 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs">
+                  🗓️ Weekly Meeting Calendar
+                </button>
+                <button type="button" id="btn-meetings-view-list" onclick="setMeetingsTabMode('list')"
+                  class="px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900">
+                  📋 All Meetings Table
+                </button>
+                <button type="button" id="btn-meetings-view-report" onclick="setMeetingsTabMode('report')"
+                  class="px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900">
+                  📊 End-of-Month Executive MoM Report
+                </button>
+              </div>
+
+              <button onclick="openMeetingModal()"
+                class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs">
+                <i data-lucide="calendar-plus" class="w-4 h-4"></i>
+                <span>+ Schedule Meeting / 1-on-1</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Active Recurring Meeting Schedules Banner (Shows Next Upcoming Time Slot) -->
+          <div id="meetings-recurring-rules-box" class="hidden bg-emerald-50/50 dark:bg-slate-800/80 rounded-xl border border-emerald-200 dark:border-slate-700 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h4 class="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                  🔁 Active Recurring Meeting Schedules & Next Upcoming Time Slots
+                </h4>
+              </div>
+              <span class="text-[11px] text-slate-500">⏰ Auto-sends reminder emails to Team & Guests <strong>1 Day Before</strong> each scheduled meeting</span>
+            </div>
+            <div id="meetings-recurring-rules-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 text-xs"></div>
+          </div>
+
+          <!-- SUB-VIEW 0: WEEKLY MEETING CALENDAR (Whole Week View — Future Upcoming Meetings Shown in Grey + Guest Attendance & Postpone) -->
+          <div id="meetings-subview-calendar" class="space-y-4">
+            <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="shiftWeeklyCalendar(-7)" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-xs font-bold">
+                  ← Previous Week
+                </button>
+                <button type="button" onclick="shiftWeeklyCalendar(0)" class="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 text-xs font-bold">
+                  This Week
+                </button>
+                <button type="button" onclick="shiftWeeklyCalendar(7)" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-xs font-bold">
+                  Next Week →
+                </button>
+                <span id="weekly-calendar-range-label" class="ml-2 text-sm font-bold text-slate-900 dark:text-white"></span>
+              </div>
+
+              <!-- Legend -->
+              <div class="flex flex-wrap items-center gap-3 text-[11px]">
+                <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> <strong>Today / Active</strong></span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-slate-400"></span> <strong class="text-slate-500">Upcoming This Week (Grey Preview • 1-Day Prior Auto-Reminder)</strong></span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> <strong>Postponed / Rescheduled</strong></span>
+                <span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-blue-600"></span> <strong>Completed + MoM</strong></span>
+              </div>
+            </div>
+
+            <!-- 7-Day Weekly Calendar Columns -->
+            <div id="weekly-meetings-calendar-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3"></div>
+          </div>
+
+          <!-- SUB-VIEW 1: MEETINGS LIST, ATTENDANCE STATUS & MoM ACTIONS -->
+          <div id="meetings-subview-list" class="hidden space-y-4">
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold uppercase text-slate-500">
+                    <th class="py-3 px-4">Agenda / Meeting Title</th>
+                    <th class="py-3 px-3">Type & Recurrence</th>
+                    <th class="py-3 px-3">Date & Time Slot</th>
+                    <th class="py-3 px-3">Participants</th>
+                    <th class="py-3 px-3">Attendance Status</th>
+                    <th class="py-3 px-3">Minutes of Meeting (MoM)</th>
+                    <th class="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="meetings-table-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW 2: END-OF-MONTH HIGHER MANAGEMENT REPORT (Attendance Scorecard + Highlights + MoM Digest) -->
+          <div id="meetings-subview-report" class="hidden space-y-5">
+            <!-- Report Filter & Export Toolbar -->
+            <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center gap-3">
+                <div>
+                  <label class="block text-[10px] font-bold uppercase text-slate-400">Select Report Month</label>
+                  <input type="month" id="mom-report-month" onchange="loadMonthlyMeetingReport()"
+                    class="mt-0.5 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs font-bold text-slate-900 dark:text-white" />
+                </div>
+                <div class="text-xs text-slate-500 max-w-md">
+                  Consolidated board report showing <strong>Team & Individual Attendance Rates</strong>, <strong>Key Team Highlights</strong>, <strong>Discussions</strong>, and <strong>Action Decisions</strong> for higher management review.
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="exportMonthlyMomCSV()"
+                  class="px-3.5 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-white text-xs font-semibold">
+                  ⬇ Export Monthly MoM CSV
+                </button>
+                <button type="button" onclick="window.print()"
+                  class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">
+                  🖨 Print / Save Executive PDF Report
+                </button>
+              </div>
+            </div>
+
+            <!-- Monthly Executive KPIs -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Total Meetings in Month</span>
+                <div id="rep-kpi-total" class="text-2xl font-bold text-slate-900 dark:text-white mt-1">0</div>
+                <span id="rep-kpi-split" class="text-[11px] text-slate-500">0 Team • 0 Individual</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">MoM Recorded</span>
+                <div id="rep-kpi-mom" class="text-2xl font-bold text-blue-600 mt-1">0</div>
+                <span class="text-[11px] text-slate-500">Sessions with logged minutes</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Avg Team Attendance</span>
+                <div id="rep-kpi-attendance" class="text-2xl font-bold text-emerald-600 mt-1">0%</div>
+                <span class="text-[11px] text-slate-500">Present + Late vs Invited</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Team Highlights Logged</span>
+                <div id="rep-kpi-highlights" class="text-2xl font-bold text-amber-600 mt-1">0</div>
+                <span class="text-[11px] text-slate-500">Key points for management</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Active Auto-Recurring</span>
+                <div id="rep-kpi-recurring" class="text-2xl font-bold text-purple-600 mt-1">0</div>
+                <span class="text-[11px] text-slate-500">Standing team/1-on-1 rules</span>
+              </div>
+            </div>
+
+            <!-- Two Column: Member Attendance Scorecard + Key Team Highlights Rollup -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <!-- Individual Attendance Scorecard -->
+              <div class="lg:col-span-1 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="px-5 py-3.5 border-b border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60">
+                  <h4 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-white">
+                    👥 Team Attendance Scorecard
+                  </h4>
+                  <p class="text-[11px] text-slate-500">Monthly reliability across all invited meetings</p>
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr class="border-b border-slate-200 dark:border-slate-700 text-[10px] font-semibold uppercase text-slate-400 bg-slate-50/40 dark:bg-slate-900/40">
+                        <th class="py-2 px-3">Member</th>
+                        <th class="py-2 px-2 text-center">Invited</th>
+                        <th class="py-2 px-2 text-center text-emerald-600">Present</th>
+                        <th class="py-2 px-2 text-center text-red-600">Absent</th>
+                        <th class="py-2 px-3 text-right">Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rep-attendance-scorecard-tbody" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Executive Rollup of Team Highlights & Management Escalations -->
+              <div class="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
+                <div class="px-5 py-3.5 border-b border-slate-200 dark:border-slate-700 bg-amber-50/50 dark:bg-slate-800/60 flex items-center justify-between">
+                  <div>
+                    <h4 class="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-300">
+                      ⭐ Monthly Highlights & Escalations Raised by Team (For Higher Management Discussion)
+                    </h4>
+                    <p class="text-[11px] text-slate-500">All key points, blockers, and strategic highlights extracted from this month's meetings</p>
+                  </div>
+                </div>
+                <div id="rep-highlights-digest" class="p-4 space-y-3 max-h-80 overflow-y-auto custom-scrollbar text-xs"></div>
+              </div>
+            </div>
+
+            <!-- Full Chronological Minutes of Meeting (MoM) Ledger -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div>
+                  <h4 class="text-sm font-bold text-slate-900 dark:text-white">
+                    📝 Complete Monthly Minutes of Meeting (MoM) & Discussions Ledger
+                  </h4>
+                  <p class="text-xs text-slate-500">Every team & 1-on-1 discussion, attendance roll-call, and decision recorded in one place</p>
+                </div>
+              </div>
+              <div id="rep-mom-timeline-list" class="p-5 space-y-4 text-xs"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =====================================================
+             TAB 5: TEAM MEMBERS, WORKLOAD & ALIGNMENT REPORTS (WEEKLY / MONTHLY)
+        ====================================================== -->
+        <section id="tab-team" class="tab-panel hidden space-y-5">
+          <!-- Header & Mode Switcher -->
+          <div class="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Team Workload, Alignment & Role Management</h3>
+                <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold">Weekly & Monthly Reports</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">Monitor live team capacity, check who is overloaded or available, and pull Weekly / Monthly Alignment Reports</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-900 p-1 border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                <button type="button" id="btn-team-mode-workload" onclick="setTeamTabMode('workload')"
+                  class="px-3 py-1.5 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs">
+                  📊 Workload & Alignment Report
+                </button>
+                <button type="button" id="btn-team-mode-directory" onclick="setTeamTabMode('directory')"
+                  class="px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-400 hover:text-slate-900">
+                  👥 Team Directory & Roles
+                </button>
+              </div>
+              <button onclick="openNotifyModal()"
+                class="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-white text-xs font-semibold flex items-center gap-1.5">
+                <i data-lucide="mail" class="w-4 h-4 text-blue-600"></i>
+                <span class="hidden sm:inline">Notice</span>
+              </button>
+              <button onclick="openUserModal()"
+                class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5">
+                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                <span>+ Add Member</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW 1: WEEKLY & MONTHLY WORKLOAD & ALIGNMENT REPORT -->
+          <div id="team-subview-workload" class="space-y-5">
+            <!-- Period Controls & Export Toolbar -->
+            <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center gap-2.5">
+                <!-- Weekly / Monthly Toggle -->
+                <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-900 p-1 border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                  <button type="button" id="wl-btn-weekly" onclick="setWorkloadReportPeriod('weekly')"
+                    class="px-3 py-1.5 rounded-md bg-blue-600 text-white shadow-xs">Weekly Report</button>
+                  <button type="button" id="wl-btn-monthly" onclick="setWorkloadReportPeriod('monthly')"
+                    class="px-3 py-1.5 rounded-md text-slate-600 dark:text-slate-300">Monthly Report</button>
+                </div>
+
+                <!-- Weekly Navigator -->
+                <div id="wl-weekly-controls" class="flex items-center gap-1.5">
+                  <button type="button" onclick="shiftWorkloadWeek(-7)" class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-xs font-bold">← Prev</button>
+                  <button type="button" onclick="shiftWorkloadWeek(0)" class="px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 text-xs font-bold">This Week</button>
+                  <button type="button" onclick="shiftWorkloadWeek(7)" class="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-xs font-bold">Next →</button>
+                </div>
+
+                <!-- Monthly Picker -->
+                <div id="wl-monthly-controls" class="hidden flex items-center gap-1.5">
+                  <input type="month" id="wl-month-picker" onchange="loadWorkloadReport()"
+                    class="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs font-bold" />
+                </div>
+
+                <span id="wl-period-label" class="text-sm font-bold text-slate-900 dark:text-white ml-1">Current Period</span>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="exportWorkloadReportCSV()"
+                  class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-white text-xs font-semibold">
+                  ⬇ Export CSV
+                </button>
+                <button type="button" onclick="window.print()"
+                  class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">
+                  🖨 Print / PDF
+                </button>
+              </div>
+            </div>
+
+            <!-- 5 Executive Workload & Alignment KPIs -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Team Alignment Score</span>
+                <div id="wl-kpi-alignment" class="text-2xl font-bold text-emerald-600 mt-1">100%</div>
+                <span id="wl-kpi-aligned-split" class="text-[11px] text-slate-500">0 / 0 members aligned</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Period Delivery Rate</span>
+                <div id="wl-kpi-completion" class="text-2xl font-bold text-blue-600 mt-1">0%</div>
+                <span id="wl-kpi-tasks-split" class="text-[11px] text-slate-500">0 / 0 tasks done</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Overdue Bottlenecks</span>
+                <div id="wl-kpi-overdue" class="text-2xl font-bold text-red-600 mt-1">0</div>
+                <span class="text-[11px] text-slate-500">Tasks past due date</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Capacity Balance</span>
+                <div class="flex items-baseline gap-2 mt-1">
+                  <span id="wl-kpi-overloaded" class="text-xl font-bold text-red-600">0</span>
+                  <span class="text-[11px] text-slate-400">Overloaded</span>
+                  <span class="text-slate-300">•</span>
+                  <span id="wl-kpi-available" class="text-xl font-bold text-emerald-600">0</span>
+                  <span class="text-[11px] text-slate-400">Free</span>
+                </div>
+                <span class="text-[11px] text-slate-500">Workload distribution</span>
+              </div>
+              <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs">
+                <span class="text-[11px] font-semibold uppercase text-slate-400">Scheduled Slot Hours</span>
+                <div id="wl-kpi-hours" class="text-2xl font-bold text-slate-900 dark:text-white mt-1">0h</div>
+                <span class="text-[11px] text-slate-500">Time-slot tasks logged</span>
+              </div>
+            </div>
+
+            <!-- Visual Chart: Open vs Completed vs Overdue per Member -->
+            <div class="bg-white dark:bg-slate-800 p-5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">Workload Distribution Across Team (Completed vs In-Progress vs Overdue)</h4>
+                  <p class="text-[11px] text-slate-500">Spot overloaded bottlenecks vs available team members instantly</p>
+                </div>
+              </div>
+              <div class="h-56">
+                <canvas id="chart-workload-report"></canvas>
+              </div>
+            </div>
+
+            <!-- Detailed Team Member Alignment & Capacity Matrix -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+              <table class="w-full text-left border-collapse">
+                <thead>
+                  <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold uppercase text-slate-500">
+                    <th class="py-3 px-4">Team Member</th>
+                    <th class="py-3 px-3 text-center">Workload (Open / Done / Overdue)</th>
+                    <th class="py-3 px-3 text-center">Capacity</th>
+                    <th class="py-3 px-3 text-center">Slot Hours</th>
+                    <th class="py-3 px-3 text-center">Alignment Score</th>
+                    <th class="py-3 px-3">Management Insight / Status</th>
+                    <th class="py-3 px-4 text-right">Tasks</th>
+                  </tr>
+                </thead>
+                <tbody id="wl-members-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+              </table>
+            </div>
+
+            <!-- Expandable Member Task Drilldown Panel -->
+            <div id="wl-member-drilldown-box" class="hidden bg-white dark:bg-slate-800 rounded-xl border border-blue-200 dark:border-slate-700 shadow-sm p-4 space-y-3">
+              <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2.5">
+                <div>
+                  <span class="text-[10px] font-bold uppercase text-blue-600">Member Workload Drilldown</span>
+                  <h4 id="wl-drilldown-title" class="text-sm font-bold text-slate-900 dark:text-white">Tasks</h4>
+                </div>
+                <button type="button" onclick="document.getElementById('wl-member-drilldown-box').classList.add('hidden')" class="text-xs text-slate-400 hover:text-slate-700 font-semibold">Close ✕</button>
+              </div>
+              <div id="wl-drilldown-list" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs"></div>
+            </div>
+          </div>
+
+          <!-- SUB-VIEW 2: TEAM DIRECTORY & ROLES -->
+          <div id="team-subview-directory" class="hidden bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold uppercase text-slate-500">
+                  <th class="py-3 px-4">Team Member</th>
+                  <th class="py-3 px-3">Email & Phone</th>
+                  <th class="py-3 px-3">Role</th>
+                  <th class="py-3 px-3">Status</th>
+                  <th class="py-3 px-3 text-center">Projects</th>
+                  <th class="py-3 px-3 text-center">Pending Tasks</th>
+                  <th class="py-3 px-3 text-center">Completed</th>
+                  <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="team-table-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =====================================================
+             TAB 6: CLIENTS MANAGEMENT
+        ====================================================== -->
+        <section id="tab-clients" class="tab-panel hidden space-y-4">
+          <div class="flex items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Clients Directory</h3>
+              <p class="text-xs text-slate-500">Manage external clients and link them to projects & workspaces</p>
+            </div>
+            <button onclick="openClientModal()"
+              class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span>Add Client</span>
+            </button>
+          </div>
+
+          <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold uppercase text-slate-500">
+                  <th class="py-3 px-4">Client Name</th>
+                  <th class="py-3 px-3">Company</th>
+                  <th class="py-3 px-3">Email & Phone</th>
+                  <th class="py-3 px-3">Status</th>
+                  <th class="py-3 px-3 text-center">Projects</th>
+                  <th class="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="clients-table-tbody" class="divide-y divide-slate-200 dark:divide-slate-700 text-xs"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =====================================================
+             TAB 7: WORKSPACES
+        ====================================================== -->
+        <section id="tab-workspaces" class="tab-panel hidden space-y-4">
+          <div class="flex items-center justify-between bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Workspaces</h3>
+              <p class="text-xs text-slate-500">Organize departments, branches, or business units</p>
+            </div>
+            <button onclick="openWorkspaceModal()"
+              class="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1.5">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              <span>New Workspace</span>
+            </button>
+          </div>
+
+          <div id="workspaces-cards-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+        </section>
+
+        <!-- =====================================================
+             TAB 8: AUTO-CRON SCHEDULER & EMAIL NOTIFICATIONS
+        ====================================================== -->
+        <section id="tab-cron" class="tab-panel hidden space-y-6">
+          <div class="p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Automated Cron Scheduler & Email Notification Engine</h3>
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">
+                Runs automatically every 60 seconds in Node.js — processes <strong>Recurring Tasks</strong>, sends <strong>Scheduled Task Reminders</strong>, alerts <strong>Upcoming Meetings</strong>, and dispatches <strong>Emails</strong> via your configured SMTP (`haris@docman.ae`).
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="openNotifyModal()" class="px-3.5 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-white text-xs font-semibold">
+                ✉ Send Instant Email Notice
+              </button>
+              <button onclick="triggerManualCron()" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">
+                ⚡ Run Cron Jobs Now
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <span class="text-xs text-slate-500">Last Cron Check</span>
+              <div id="cron-last-run" class="text-sm font-bold text-slate-900 dark:text-white mt-1">Active</div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <span class="text-xs text-slate-500">Recurring Tasks Generated</span>
+              <div id="cron-rec-count" class="text-xl font-bold text-blue-600 mt-1">0</div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <span class="text-xs text-slate-500">Task & Meeting Reminders</span>
+              <div id="cron-rem-count" class="text-xl font-bold text-amber-600 mt-1">0</div>
+            </div>
+            <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <span class="text-xs text-slate-500">Automated Emails Sent</span>
+              <div id="cron-email-count" class="text-xl font-bold text-emerald-600 mt-1">0</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Active Recurring Task Rules -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <h4 class="text-sm font-bold text-slate-900 dark:text-white">Active Recurring Tasks & Reminders</h4>
+                  <p class="text-xs text-slate-500">Tasks configured to auto-create and email assignees</p>
+                </div>
+                <button onclick="openTaskModal()" class="text-xs text-blue-600 font-semibold hover:underline">+ New Recurring Task</button>
+              </div>
+              <div id="cron-recurring-list" class="space-y-2 text-xs max-h-80 overflow-y-auto"></div>
+            </div>
+
+            <!-- Live Cron & Email Execution Log -->
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+              <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-1">Cron & Email Dispatch Log</h4>
+              <p class="text-xs text-slate-500 mb-3">Real-time log of background cron runs and email notifications</p>
+              <div id="cron-logs-list" class="space-y-2 text-xs max-h-80 overflow-y-auto font-mono"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =====================================================
+             TAB 9: SYSTEM CONFIGURATION (Statuses, Priorities, Tags, Spatie Roles)
+        ====================================================== -->
+        <section id="tab-settings" class="tab-panel hidden space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white mb-1">Workflow Statuses</h3>
+              <p class="text-xs text-slate-500 mb-4">Used across Projects and Tasks</p>
+
+              <form id="add-status-form" class="flex gap-2 mb-4">
+                <input type="text" id="new-status-title" required placeholder="New status name..."
+                  class="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs" />
+                <select id="new-status-color" class="px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                  <option value="primary">Blue</option>
+                  <option value="info">Cyan</option>
+                  <option value="success">Green</option>
+                  <option value="warning">Amber</option>
+                  <option value="danger">Red</option>
+                  <option value="secondary">Gray</option>
+                </select>
+                <button type="submit" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold">Add</button>
+              </form>
+
+              <div id="settings-statuses-list" class="space-y-2 text-xs"></div>
+            </div>
+
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white mb-1">Priority Levels</h3>
+              <p class="text-xs text-slate-500 mb-4">Define urgency levels for Projects & Tasks</p>
+
+              <form id="add-priority-form" class="flex gap-2 mb-4">
+                <input type="text" id="new-priority-title" required placeholder="New priority name..."
+                  class="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs" />
+                <select id="new-priority-color" class="px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs">
+                  <option value="danger">Red</option>
+                  <option value="warning">Amber</option>
+                  <option value="info">Cyan</option>
+                  <option value="primary">Blue</option>
+                  <option value="secondary">Gray</option>
+                </select>
+                <button type="submit" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold">Add</button>
+              </form>
+
+              <div id="settings-priorities-list" class="space-y-2 text-xs"></div>
+            </div>
+
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white mb-1">Project Tags</h3>
+              <p class="text-xs text-slate-500 mb-4">Labels for categorizing projects</p>
+
+              <form id="add-tag-form" class="flex gap-2 mb-4">
+                <input type="text" id="new-tag-title" required placeholder="New tag name..."
+                  class="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs" />
+                <button type="submit" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold">Add</button>
+              </form>
+
+              <div id="settings-tags-list" class="space-y-2 text-xs"></div>
+            </div>
+          </div>
+
+          <div id="settings-roles-section" data-strict-admin="true" class="perm-gated-nav bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Roles & Permissions (Spatie ACL)</h3>
+                <p class="text-xs text-slate-500">Create custom roles or inspect permissions assigned to each role</p>
+              </div>
+              <button onclick="openRoleModal()" class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold">
+                + Create Role
+              </button>
+            </div>
+            <div id="settings-roles-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs"></div>
+          </div>
+        </section>
+
+        <!-- =====================================================
+             TAB 10: AUDIT LOG & LEAVES
+        ====================================================== -->
+        <section id="tab-activity" class="tab-panel hidden space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white mb-1">System Activity Audit Log</h3>
+              <p class="text-xs text-slate-500 mb-4">Recent actions across Laravel and CEO Dashboard</p>
+              <div id="full-activity-list" class="space-y-2.5 max-h-[500px] overflow-y-auto custom-scrollbar pr-1"></div>
+            </div>
+
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white mb-1">Team Leave Requests</h3>
+              <p class="text-xs text-slate-500 mb-4">Approve or reject employee leave requests directly</p>
+              <div id="leaves-list-container" class="space-y-2.5 text-xs"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =====================================================
+             TAB 11: EMAIL SETTINGS (SMTP) — ADMIN & SUPER ADMIN ONLY
+        ====================================================== -->
+        <section id="tab-email-settings" class="tab-panel hidden space-y-6">
+          <div class="max-w-3xl bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/60 flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">SMTP Email Settings (Super Admin & Admin Only)</h3>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  Directly updates the <code class="text-blue-600">email_settings</code> configuration in your MySQL database. Used for automatic task assignments, @mention tags, recurring cron tasks, and meeting invitations.
+                </p>
+              </div>
+              <span class="px-2.5 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold">Role Protected</span>
+            </div>
+
+            <form id="email-settings-form" class="p-6 space-y-4 text-xs">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">SMTP Host *</label>
+                  <input type="text" id="es-smtp-host" required placeholder="smtp.gmail.com"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">SMTP Port *</label>
+                  <input type="text" id="es-smtp-port" required placeholder="587"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Sender Email / Username *</label>
+                  <input type="email" id="es-email" required placeholder="haris@docman.ae"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">SMTP App Password *</label>
+                  <input type="password" id="es-password" required placeholder="••••••••••••"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">SMTP Encryption</label>
+                  <select id="es-encryption" class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600">
+                    <option value="tls">TLS (Recommended for port 587)</option>
+                    <option value="ssl">SSL (Port 465)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Email Content Type</label>
+                  <select id="es-content-type" class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600">
+                    <option value="html">HTML (Rich Formatted Emails)</option>
+                    <option value="text">Plain Text</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="pt-4 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <input type="email" id="es-test-recipient" placeholder="Test recipient email..."
+                    class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 w-56" />
+                  <button type="button" onclick="sendTestSmtpEmail()"
+                    class="px-3.5 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-800 dark:text-white font-semibold">
+                    ✉ Send Test Email
+                  </button>
+                </div>
+
+                <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm">
+                  Save SMTP Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- =========================================================
+       MODAL 1: CREATE / EDIT PROJECT (CEO Fast & Clean Design)
+  ========================================================== -->
+  <div id="project-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/80">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-600 flex items-center justify-center">
+            <i data-lucide="folder-plus" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 id="project-modal-title" class="text-sm font-bold text-slate-900 dark:text-white leading-tight">Create New Project</h3>
+            <p class="text-[11px] text-slate-500">Quickly launch a project and assign your team in seconds</p>
+          </div>
+        </div>
+        <button onclick="closeProjectModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <form id="project-form" class="p-6 overflow-y-auto space-y-5 custom-scrollbar text-xs">
+        <input type="hidden" id="proj-id" />
+        <input type="hidden" id="proj-status" />
+        <input type="hidden" id="proj-priority" value="0" />
+        <input type="hidden" id="proj-client-discuss" value="0" />
+        <input type="hidden" id="proj-note" value="" />
+
+        <!-- 1. Project Name -->
+        <div>
+          <label class="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">What is the Project Name? *</label>
+          <input type="text" id="proj-title" required placeholder="e.g. ERP Application Phase 2 or Website Redesign"
+            class="w-full px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-sm font-medium text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition" />
+        </div>
+
+        <!-- 2. Visual Status & Priority Selector Pills -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Status</label>
+            <div id="proj-status-pills" class="flex flex-wrap gap-1.5"></div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Priority Level</label>
+            <div id="proj-priority-pills" class="flex flex-wrap gap-1.5"></div>
+          </div>
+        </div>
+
+        <!-- 3. Assign Team Members (Visual Avatar Chips) -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Who is working on this project?</label>
+            <button type="button" onclick="selectAllProjUsers()" class="text-[11px] text-blue-600 hover:underline font-semibold">Select All Team</button>
+          </div>
+          <div id="proj-users-checkboxes" class="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700"></div>
+        </div>
+
+        <!-- 4. Timeline with 1-Click CEO Presets -->
+        <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Timeline / Deadline</span>
+            <div class="flex items-center gap-1">
+              <button type="button" onclick="setProjDatePreset(7)" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-[11px] font-medium hover:border-blue-500">1 Week</button>
+              <button type="button" onclick="setProjDatePreset(14)" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-[11px] font-medium hover:border-blue-500">2 Weeks</button>
+              <button type="button" onclick="setProjDatePreset(30)" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-[11px] font-medium hover:border-blue-500">1 Month</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] text-slate-500 mb-1">Start Date</label>
+              <input type="date" id="proj-start-date"
+                class="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-medium" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-500 mb-1">Target End Date</label>
+              <input type="date" id="proj-end-date"
+                class="w-full px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-medium" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Brief Instructions / Scope -->
+        <div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Executive Instructions / Brief (Optional)</label>
+          <textarea id="proj-description" rows="2" placeholder="Write key goals or deliverables for the team..."
+            class="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"></textarea>
+        </div>
+
+        <!-- 6. Collapsible More Options (Workspace, Budget, Tags, Visibility) -->
+        <details class="group rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 overflow-hidden">
+          <summary class="px-4 py-2.5 cursor-pointer flex items-center justify-between font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 select-none">
+            <span>⚙️ More Options (Workspace, Budget, Tags & Visibility)</span>
+            <span class="text-[11px] text-blue-600 group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <div class="p-4 pt-2 border-t border-slate-200/80 dark:border-slate-700 space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label class="block font-semibold text-slate-600 dark:text-slate-400 mb-1">Workspace</label>
+                <select id="proj-workspace" required class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></select>
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-600 dark:text-slate-400 mb-1">Budget (AED)</label>
+                <input type="text" id="proj-budget" placeholder="e.g. 25000"
+                  class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+              </div>
+              <div>
+                <label class="block font-semibold text-slate-600 dark:text-slate-400 mb-1">Task Visibility</label>
+                <select id="proj-task-accessibility" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600">
+                  <option value="assigned_users">Assigned Users Only</option>
+                  <option value="project_users">All Project Users</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="block font-semibold text-slate-600 dark:text-slate-400 mb-1">Project Tags</label>
+              <div id="proj-tags-checkboxes" class="flex flex-wrap gap-1.5"></div>
+            </div>
+
+            <div class="flex items-center gap-4 pt-1">
+              <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" id="proj-time-entries" checked class="rounded text-blue-600" />
+                <span>Enable Time Entries</span>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <!-- Footer Bar -->
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+          <label class="flex items-center gap-2 cursor-pointer font-semibold text-blue-600 dark:text-blue-400">
+            <input type="checkbox" id="proj-send-email" checked class="rounded text-blue-600" />
+            <span>✉ Notify assigned team by email</span>
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeProjectModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-semibold">Cancel</button>
+            <button type="submit" class="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md shadow-blue-600/20 transition">
+              Save Project
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 2: CREATE / EDIT TASK (CEO Fast & Clean Design)
+  ========================================================== -->
+  <div id="task-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/80">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-blue-600/10 text-blue-600 flex items-center justify-center">
+            <i data-lucide="check-square" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 id="task-modal-title" class="text-sm font-bold text-slate-900 dark:text-white leading-tight">Assign New Task</h3>
+            <p class="text-[11px] text-slate-500">Pick a project, choose a time slot, and tap who should do it</p>
+          </div>
+        </div>
+        <button onclick="closeTaskModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <form id="task-form" class="p-6 overflow-y-auto space-y-5 custom-scrollbar text-xs">
+        <input type="hidden" id="task-id" />
+        <input type="hidden" id="task-status" />
+        <input type="hidden" id="task-priority" value="0" />
+        <input type="hidden" id="task-billing-type" value="none" />
+
+        <!-- 1. Task Title & Project -->
+        <div class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          <div class="sm:col-span-3">
+            <label class="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">Task Title *</label>
+            <input type="text" id="task-title" required placeholder="e.g. Morning Shoot & Editing or CRM Proposal Check"
+              class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-sm font-medium text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">Project *</label>
+            <select id="task-project" required class="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs font-semibold"></select>
+          </div>
+        </div>
+
+        <!-- 2. Visual Status & Priority Pills -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Status</label>
+            <div id="task-status-pills" class="flex flex-wrap gap-1.5"></div>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Priority</label>
+            <div id="task-priority-pills" class="flex flex-wrap gap-1.5"></div>
+          </div>
+        </div>
+
+        <!-- 3. Assign Team Members (Visual Avatar Chips) -->
+        <div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Assign To (Tap Team Members)</label>
+          <div id="task-users-checkboxes" class="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700"></div>
+        </div>
+
+        <!-- 4. Date & Time Slot with 1-Click CEO Presets -->
+        <div class="p-3.5 rounded-xl bg-blue-50/40 dark:bg-slate-900/70 border border-blue-200/80 dark:border-slate-700 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">🕒 Schedule Date & Time Slot</span>
+            <div class="flex flex-wrap items-center gap-1">
+              <button type="button" onclick="setTaskTimePreset('09:00', '11:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-blue-200 dark:border-slate-600 text-[11px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white transition">9–11 AM</button>
+              <button type="button" onclick="setTaskTimePreset('11:00', '13:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-blue-200 dark:border-slate-600 text-[11px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white transition">11–1 PM</button>
+              <button type="button" onclick="setTaskTimePreset('14:00', '16:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-blue-200 dark:border-slate-600 text-[11px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white transition">2–4 PM</button>
+              <button type="button" onclick="setTaskTimePreset('16:00', '18:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-blue-200 dark:border-slate-600 text-[11px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-600 hover:text-white transition">4–6 PM</button>
+              <button type="button" onclick="setTaskTimePreset('', '')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-[11px] text-slate-500">Full Day</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-500 mb-1">Start Date</label>
+              <input type="date" id="task-start-date" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-medium" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-500 mb-1">Due Date</label>
+              <input type="date" id="task-due-date" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-medium" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-blue-700 dark:text-blue-300 mb-1">From Time</label>
+              <input type="time" id="task-start-time" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-blue-300 dark:border-slate-600 font-semibold" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-blue-700 dark:text-blue-300 mb-1">To Time</label>
+              <input type="time" id="task-end-time" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-blue-300 dark:border-slate-600 font-semibold" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Brief Instructions -->
+        <div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Instructions / Notes (Optional)</label>
+          <textarea id="task-description" rows="2" placeholder="What needs to be done..."
+            class="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"></textarea>
+        </div>
+
+        <!-- 6. Auto-Repeat (Recurring Cron) & Automated Email Reminder Options (Open by Default so never missed) -->
+        <details open class="group rounded-xl border border-emerald-200 dark:border-slate-700 bg-emerald-50/30 dark:bg-slate-900/40 overflow-hidden">
+          <summary class="px-4 py-2.5 cursor-pointer flex items-center justify-between font-bold text-emerald-900 dark:text-emerald-300 hover:text-emerald-700 select-none">
+            <span>🔁 Auto-Repeat Task (Auto-Creates Next Date & Time Slot via Cron) & Reminders</span>
+            <span class="text-[11px] text-emerald-600 group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <div class="p-4 pt-2 border-t border-slate-200/80 dark:border-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
+              <label class="flex items-center gap-2 cursor-pointer font-bold">
+                <input type="checkbox" id="task-is-recurring" class="rounded text-blue-600" />
+                <span>🔁 Repeat Task Automatically</span>
+              </label>
+              <div class="grid grid-cols-2 gap-2">
+                <select id="task-recurring-frequency" class="px-2 py-1 rounded bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600">
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+                <input type="number" id="task-recurring-occurrences" min="1" placeholder="Max times"
+                  class="px-2 py-1 rounded bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+              </div>
+            </div>
+
+            <div class="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
+              <label class="flex items-center gap-2 cursor-pointer font-bold">
+                <input type="checkbox" id="task-enable-reminder" class="rounded text-blue-600" />
+                <span>⏰ Send Automated Reminder</span>
+              </label>
+              <div class="grid grid-cols-2 gap-2">
+                <select id="task-reminder-frequency" class="px-2 py-1 rounded bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600">
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+                <input type="time" id="task-reminder-time" value="09:00"
+                  class="px-2 py-1 rounded bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+              </div>
+            </div>
+
+            <div class="sm:col-span-2 flex items-center justify-between pt-1">
+              <span class="font-semibold text-slate-500">Completion Progress (%)</span>
+              <input type="number" id="task-completion" min="0" max="100" value="0"
+                class="w-24 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-bold text-center" />
+            </div>
+          </div>
+        </details>
+
+        <!-- Footer -->
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+          <label class="flex items-center gap-2 cursor-pointer font-semibold text-blue-600 dark:text-blue-400">
+            <input type="checkbox" id="task-send-email" checked class="rounded text-blue-600" />
+            <span>✉ Email assigned team members immediately</span>
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeTaskModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-semibold">Cancel</button>
+            <button type="submit" class="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md shadow-blue-600/20 transition">
+              Assign & Notify
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 3: SCHEDULE MEETING / EXECUTIVE AGENDA (Team or 1-on-1 + Auto-Recurring Cron)
+  ========================================================== -->
+  <div id="meeting-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/80">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-600/10 text-emerald-600 flex items-center justify-center">
+            <i data-lucide="calendar-plus" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white leading-tight">Schedule Meeting / Executive Agenda</h3>
+            <p class="text-[11px] text-slate-500">Schedule a Team or Individual 1-on-1 session with optional auto-recurring email alerts</p>
+          </div>
+        </div>
+        <button onclick="closeMeetingModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <form id="meeting-form" class="p-6 overflow-y-auto space-y-5 custom-scrollbar text-xs">
+        <input type="hidden" id="mt-scope" value="team" />
+        <input type="hidden" id="mt-recurring-freq" value="none" />
+
+        <!-- 1. Meeting / Agenda Title -->
+        <div>
+          <label class="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1.5">Meeting / Agenda Title *</label>
+          <input type="text" id="mt-title" required placeholder="e.g. Daily Standup, Weekly CRM Review, or 1-on-1 Performance Check"
+            class="w-full px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-sm font-medium text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600 transition" />
+        </div>
+
+        <!-- 2. Meeting Scope (Full Team vs Individual 1-on-1) & Auto-Recurring Schedule Pills -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Meeting Type / Scope</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" id="pill-mt-scope-team" onclick="setMeetingScope('team')"
+                class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 bg-emerald-600 text-white border-emerald-600 shadow-xs transition">
+                <span>👥 Team Meeting</span>
+              </button>
+              <button type="button" id="pill-mt-scope-individual" onclick="setMeetingScope('individual')"
+                class="px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-400 transition">
+                <span>👤 Individual 1-on-1</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">🔁 Auto-Recur & Auto-Email Team</label>
+            <div class="flex flex-wrap gap-1.5" id="mt-recurring-pills">
+              <button type="button" data-freq="none" onclick="setMeetingRecurrence('none')"
+                class="mt-rec-pill px-2.5 py-2 rounded-lg border text-[11px] font-bold bg-slate-900 dark:bg-emerald-600 text-white border-slate-900 dark:border-emerald-600">
+                One-Time
+              </button>
+              <button type="button" data-freq="daily" onclick="setMeetingRecurrence('daily')"
+                class="mt-rec-pill px-2.5 py-2 rounded-lg border text-[11px] font-semibold bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700">
+                🔁 Daily
+              </button>
+              <button type="button" data-freq="weekly" onclick="setMeetingRecurrence('weekly')"
+                class="mt-rec-pill px-2.5 py-2 rounded-lg border text-[11px] font-semibold bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700">
+                🔁 Weekly
+              </button>
+              <button type="button" data-freq="monthly" onclick="setMeetingRecurrence('monthly')"
+                class="mt-rec-pill px-2.5 py-2 rounded-lg border text-[11px] font-semibold bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700">
+                🔁 Monthly
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Select Attendees (1-Tap Avatar Chips) -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label id="mt-attendees-label" class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Invite Team Members (Tap to Select / Deselect)</label>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="selectAllMeetingUsers(true)" class="text-[11px] text-emerald-600 hover:underline font-semibold">Select All</button>
+              <span class="text-slate-300">•</span>
+              <button type="button" onclick="selectAllMeetingUsers(false)" class="text-[11px] text-slate-500 hover:underline">Clear</button>
+            </div>
+          </div>
+          <div id="mt-users-checkboxes" class="flex flex-wrap gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700"></div>
+        </div>
+
+        <!-- 3B. Invite External Guests / Clients (Receive 1-Day Prior Auto-Reminder & Tracked on Guest Attendance) -->
+        <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <label class="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                🎟️ Invite External Guests / Clients (Optional)
+              </label>
+              <p class="text-[10px] text-slate-500">Guests receive automatic email invites, 1-day-before email reminders, and appear in the Guest Attendance roll-call</p>
+            </div>
+          </div>
+
+          <!-- Existing Clients Checkboxes (if any) -->
+          <div id="mt-clients-checkboxes" class="flex flex-wrap gap-1.5"></div>
+
+          <!-- Quick Add Custom Guest Name + Email -->
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="text" id="mt-guest-name-input" placeholder="Guest Name (e.g. Mr. Ahmed / Partner)"
+              class="flex-1 min-w-[140px] px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+            <input type="email" id="mt-guest-email-input" placeholder="Guest Email (for auto-reminder)..."
+              class="flex-1 min-w-[160px] px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+            <button type="button" onclick="addDraftMeetingGuest()"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-emerald-600 text-white font-semibold hover:opacity-90">
+              + Add Guest
+            </button>
+          </div>
+
+          <div id="mt-draft-guests-pills" class="flex flex-wrap gap-1.5"></div>
+        </div>
+
+        <!-- 4. Date & Time Slot with 1-Click CEO Presets + Next Upcoming Recurring Slot Preview -->
+        <div class="p-3.5 rounded-xl bg-emerald-50/40 dark:bg-slate-900/70 border border-emerald-200/80 dark:border-slate-700 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">🕒 Date & Time Slot</span>
+            <div class="flex flex-wrap items-center gap-1">
+              <button type="button" onclick="setMeetingTimePreset('09:30', '10:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-600 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white transition">9:30–10 AM</button>
+              <button type="button" onclick="setMeetingTimePreset('10:00', '11:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-600 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white transition">10–11 AM</button>
+              <button type="button" onclick="setMeetingTimePreset('14:00', '15:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-600 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white transition">2–3 PM</button>
+              <button type="button" onclick="setMeetingTimePreset('16:00', '17:00')" class="px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-emerald-200 dark:border-slate-600 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-600 hover:text-white transition">4–5 PM</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-500 mb-1">Date *</label>
+              <input type="date" id="mt-date" required onchange="updateMeetingNextSlotPreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-medium" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 mb-1">Start Time *</label>
+              <input type="time" id="mt-start-time" value="10:00" required onchange="updateMeetingNextSlotPreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-emerald-300 dark:border-slate-600 font-semibold" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 mb-1">End Time *</label>
+              <input type="time" id="mt-end-time" value="11:00" required onchange="updateMeetingNextSlotPreview()" class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-emerald-300 dark:border-slate-600 font-semibold" />
+            </div>
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-500 mb-1">Workspace</label>
+              <select id="mt-workspace" required class="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-medium"></select>
+            </div>
+          </div>
+
+          <!-- Live Next Upcoming Recurring Slots Preview -->
+          <div id="mt-next-slot-preview-box" class="hidden p-2.5 rounded-lg bg-white/90 dark:bg-slate-800 border border-emerald-300 dark:border-slate-600 text-[11px] flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded bg-emerald-600 text-white font-bold text-[10px]">NEXT UPCOMING SLOTS</span>
+              <span id="mt-next-slot-preview-text" class="font-semibold text-slate-700 dark:text-slate-200"></span>
+            </div>
+            <span class="text-[10px] text-slate-500">Shown in grey on Weekly Calendar • Auto-reminder 1 day before</span>
+          </div>
+        </div>
+
+        <!-- 5. Initial Agenda Points -->
+        <div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Initial Agenda / Topics to Discuss (Optional)</label>
+          <textarea id="mt-agenda-notes" rows="2" placeholder="e.g. 1. Review yesterday's deliverables  2. Blockers from IT team  3. Client timeline..."
+            class="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"></textarea>
+        </div>
+
+        <!-- Footer -->
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+          <label class="flex items-center gap-2 cursor-pointer font-semibold text-emerald-600 dark:text-emerald-400">
+            <input type="checkbox" id="mt-send-email" checked class="rounded text-emerald-600" />
+            <span>✉ Auto-Email Invitation & Attendance Requirement</span>
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeMeetingModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-semibold">Cancel</button>
+            <button type="submit" class="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-600/20 transition">
+              Schedule & Notify
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 3B: MARK MEETING ATTENDANCE & RECORD MINUTES OF MEETING (MoM)
+  ========================================================== -->
+  <div id="meeting-mom-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-4xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-4 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/80 space-y-2.5">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="mom-modal-scope-badge" class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold uppercase">TEAM MEETING</span>
+              <span id="mom-modal-date-badge" class="text-xs font-mono text-slate-500"></span>
+            </div>
+            <h3 id="mom-modal-title" class="text-base font-bold text-slate-900 dark:text-white mt-0.5">Attendance & Minutes of Meeting (MoM)</h3>
+          </div>
+          <button onclick="closeMeetingMomModal()" title="Close"
+            class="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="mom-meeting-status" class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs font-bold">
+            <option value="completed">✅ Meeting Completed</option>
+            <option value="scheduled">🕒 Scheduled / In Progress</option>
+          </select>
+        </div>
+      </div>
+
+      <form id="meeting-mom-form" class="p-6 overflow-y-auto space-y-5 custom-scrollbar text-xs">
+        <input type="hidden" id="mom-meeting-id" />
+
+        <!-- 1. LIVE ATTENDANCE ROLL-CALL (Team Members) -->
+        <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-white">
+                1. Team Attendance Roll-Call (Who Was Available?)
+              </h4>
+              <p class="text-[11px] text-slate-500">Tap Present, Late, Excused, or Absent for each invited team member — feeds directly into the End-of-Month Scorecard</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="openPostponeModalFromMom()"
+                class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold">
+                ⏳ Postpone / Reschedule Meeting
+              </button>
+              <button type="button" onclick="markAllMeetingAttendance('present')"
+                class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold">
+                ✓ Mark All Present
+              </button>
+            </div>
+          </div>
+
+          <div id="mom-attendance-list" class="grid grid-cols-1 md:grid-cols-2 gap-2.5"></div>
+        </div>
+
+        <!-- 1B. GUEST & EXTERNAL CLIENT ATTENDANCE ROLL-CALL (With On-The-Fly Add Guest) -->
+        <div class="p-4 rounded-xl bg-emerald-50/40 dark:bg-slate-900/70 border border-emerald-200 dark:border-slate-700 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-emerald-900 dark:text-emerald-300">
+                🎟️ 1B. Guest & Client Attendance Roll-Call
+              </h4>
+              <p class="text-[11px] text-slate-500">Mark external guest or client attendance right here, or add a walk-in guest on the spot</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <input type="text" id="mom-new-guest-name" placeholder="Guest Name..."
+                class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-[11px]" />
+              <input type="email" id="mom-new-guest-email" placeholder="Guest Email (optional)..."
+                class="px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-[11px]" />
+              <button type="button" onclick="addGuestInsideMomModal()"
+                class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold">
+                + Add Guest
+              </button>
+            </div>
+          </div>
+
+          <div id="mom-guest-attendance-list" class="grid grid-cols-1 md:grid-cols-2 gap-2.5"></div>
+        </div>
+
+        <!-- 2. MINUTES OF MEETING (MoM) & TEAM HIGHLIGHTS FOR HIGHER MANAGEMENT -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="lg:col-span-2">
+            <label class="block text-xs font-bold text-amber-800 dark:text-amber-300 mb-1">
+              ⭐ 2. Key Highlights Raised by Team / Escalations for Higher Management *
+            </label>
+            <p class="text-[11px] text-slate-500 mb-1.5">
+              What important points, achievements, risks, or requests were highlighted by the team during this meeting? (Highlighted in the Monthly Management Report)
+            </p>
+            <textarea id="mom-highlights" rows="3" placeholder="e.g. • Shahin highlighted that LinkedIn campaign engagement increased by 40%&#10;• Jithu raised a server migration blocker requiring management approval..."
+              class="w-full px-3.5 py-2.5 rounded-xl bg-amber-50/40 dark:bg-slate-900 border border-amber-300 dark:border-slate-600 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-1">
+              💬 3. Detailed Discussion / Minutes of Meeting (MoM)
+            </label>
+            <textarea id="mom-discussion" rows="4" placeholder="Record what was discussed in the meeting..."
+              class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-emerald-800 dark:text-emerald-300 mb-1">
+              ✅ 4. Decisions Made & Next Action Steps
+            </label>
+            <textarea id="mom-decisions" rows="4" placeholder="e.g. • Approved new landing page timeline&#10;• Next review scheduled for Friday 10 AM..."
+              class="w-full px-3.5 py-2.5 rounded-xl bg-emerald-50/30 dark:bg-slate-900 border border-emerald-300 dark:border-slate-600 text-slate-900 dark:text-white focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"></textarea>
+          </div>
+        </div>
+
+        <!-- 3. OPTIONAL: CONVERT MEETING ACTION ITEM INTO AN ASSIGNED TASK -->
+        <div class="p-3.5 rounded-xl bg-blue-50/40 dark:bg-slate-900/60 border border-blue-200 dark:border-slate-700 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">
+              ⚡ Optional: Instant Action Task From This Meeting
+            </span>
+            <span class="text-[11px] text-slate-500">Leave blank if no new task is needed</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <input type="text" id="mom-action-task-title" placeholder="Follow-up task title (optional)..."
+              class="sm:col-span-2 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+            <select id="mom-action-task-project" class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></select>
+            <select id="mom-action-task-user" class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></select>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+          <label class="flex items-center gap-2 cursor-pointer font-semibold text-blue-600 dark:text-blue-400">
+            <input type="checkbox" id="mom-send-email" checked class="rounded text-blue-600" />
+            <span>✉ Email Attendance & Minutes of Meeting (MoM) Summary to Participants</span>
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeMeetingMomModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold">Cancel</button>
+            <button type="submit" class="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md shadow-blue-600/20">
+              Save Attendance & MoM
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 3C: POSTPONE / RESCHEDULE MEETING TO NEXT SLOT (Auto-Notifies Team & Guests)
+  ========================================================== -->
+  <div id="meeting-postpone-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-amber-50/70 dark:bg-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-600 flex items-center justify-center font-bold">
+            ⏳
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Postpone / Reschedule Meeting</h3>
+            <p id="postpone-meeting-subtitle" class="text-[11px] text-slate-500"></p>
+          </div>
+        </div>
+        <button onclick="closePostponeMeetingModal()" class="text-slate-400 hover:text-slate-700">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <form id="meeting-postpone-form" class="p-6 space-y-4 text-xs">
+        <input type="hidden" id="postpone-meeting-id" />
+
+        <!-- Quick Postpone Presets -->
+        <div>
+          <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">1-Click Postpone To</label>
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" onclick="applyPostponeOffset(0, 2)" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-amber-500 hover:text-white font-semibold transition">+2 Hours Today</button>
+            <button type="button" onclick="applyPostponeOffset(1, 0)" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-amber-500 hover:text-white font-semibold transition">Tomorrow Same Time</button>
+            <button type="button" onclick="applyPostponeOffset(2, 0)" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-amber-500 hover:text-white font-semibold transition">+2 Days</button>
+            <button type="button" onclick="applyPostponeOffset(7, 0)" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-amber-500 hover:text-white font-semibold transition">Next Week (+7 Days)</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2.5">
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">New Date *</label>
+            <input type="date" id="postpone-new-date" required class="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-medium" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Start Time *</label>
+            <input type="time" id="postpone-new-start" required class="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-semibold" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">End Time *</label>
+            <input type="time" id="postpone-new-end" required class="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-semibold" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Reason for Postponement (Included in Email)</label>
+          <input type="text" id="postpone-reason" placeholder="e.g. Executive client call overlap — shifted to new slot"
+            class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+        </div>
+
+        <label class="flex items-center gap-2 cursor-pointer font-semibold text-amber-700 dark:text-amber-400">
+          <input type="checkbox" id="postpone-send-email" checked class="rounded text-amber-600" />
+          <span>✉ Auto-Email Rescheduled Slot to Team Members & Guests</span>
+        </label>
+
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+          <button type="button" onclick="closePostponeMeetingModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 font-semibold">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-md shadow-amber-600/20">
+            Postpone & Notify All
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 4: INSTANT TEAM EMAIL / NOTIFICATION BROADCAST
+  ========================================================== -->
+  <div id="notify-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900 dark:text-white">Send Instant Email & Notification</h3>
+        <button onclick="closeNotifyModal()" class="text-slate-400 hover:text-slate-700">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form id="notify-form" class="p-6 space-y-4 text-xs">
+        <div>
+          <label class="block font-semibold mb-1">Subject *</label>
+          <input type="text" id="nt-subject" required placeholder="e.g. Priority Update for Today's Deliverables"
+            class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+        </div>
+        <div>
+          <label class="block font-semibold mb-1">Message *</label>
+          <textarea id="nt-message" rows="4" required placeholder="Write your message or instructions for the team..."
+            class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600"></textarea>
+        </div>
+        <div>
+          <label class="block font-semibold mb-1.5">Recipients</label>
+          <div id="nt-users-checkboxes" class="grid grid-cols-2 gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 max-h-36 overflow-y-auto"></div>
+        </div>
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+          <button type="button" onclick="closeNotifyModal()" class="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">Send Email & Alert</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 5: CREATE / EDIT USER
+  ========================================================== -->
+  <div id="user-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <h3 id="user-modal-title" class="text-base font-bold text-slate-900 dark:text-white">Add Team Member</h3>
+        <button onclick="closeUserModal()" class="text-slate-400 hover:text-slate-700">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="user-form" class="p-6 space-y-4 text-xs">
+        <input type="hidden" id="usr-id" />
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">First Name *</label>
+            <input type="text" id="usr-first-name" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Last Name *</label>
+            <input type="text" id="usr-last-name" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Email *</label>
+            <input type="email" id="usr-email" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Phone</label>
+            <input type="text" id="usr-phone" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Role *</label>
+            <select id="usr-role" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600"></select>
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Status</label>
+            <select id="usr-status" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600">
+              <option value="1">Active</option>
+              <option value="0">Deactivated</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Password <span id="usr-pass-hint" class="text-slate-400 font-normal">(Required for new users)</span></label>
+            <input type="password" id="usr-password" placeholder="••••••••"
+              class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Assign to Workspaces</label>
+          <div id="usr-workspaces-checkboxes" class="grid grid-cols-2 gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700"></div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
+          <button type="button" onclick="closeUserModal()" class="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">Save Member</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 6: CREATE CLIENT
+  ========================================================== -->
+  <div id="client-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900 dark:text-white">Add New Client</h3>
+        <button onclick="closeClientModal()" class="text-slate-400 hover:text-slate-700">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form id="client-form" class="p-6 space-y-4 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold mb-1">First Name *</label>
+            <input type="text" id="cli-first-name" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+          <div>
+            <label class="block font-semibold mb-1">Last Name</label>
+            <input type="text" id="cli-last-name" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+        </div>
+        <div>
+          <label class="block font-semibold mb-1">Company Name</label>
+          <input type="text" id="cli-company" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold mb-1">Email *</label>
+            <input type="email" id="cli-email" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+          <div>
+            <label class="block font-semibold mb-1">Phone</label>
+            <input type="text" id="cli-phone" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+        </div>
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+          <button type="button" onclick="closeClientModal()" class="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold">Save Client</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 7: CREATE WORKSPACE
+  ========================================================== -->
+  <div id="workspace-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900 dark:text-white">Create Workspace</h3>
+        <button onclick="closeWorkspaceModal()" class="text-slate-400 hover:text-slate-700">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form id="workspace-form" class="p-6 space-y-4 text-xs">
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Workspace Title *</label>
+          <input type="text" id="ws-title" required placeholder="e.g. Docman Sales & Marketing"
+            class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Include Team Members</label>
+          <div id="ws-users-checkboxes" class="grid grid-cols-2 gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 max-h-40 overflow-y-auto"></div>
+        </div>
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
+          <button type="button" onclick="closeWorkspaceModal()" class="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">Create Workspace</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 8: CREATE / EDIT SPATIE ROLE & CATEGORIZED PERMISSIONS
+  ========================================================== -->
+  <div id="role-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
+    <div class="w-full max-w-4xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50/70 dark:bg-slate-800/80">
+        <div>
+          <h3 id="role-modal-title" class="text-base font-bold text-slate-900 dark:text-white">Manage Role & Permissions</h3>
+          <p class="text-[11px] text-slate-500">Categorized by module — check individual actions or toggle an entire category in one click</p>
+        </div>
+        <button onclick="closeRoleModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form id="role-form" class="p-5 overflow-y-auto space-y-4 custom-scrollbar text-xs">
+        <input type="hidden" id="role-id" />
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+          <div>
+            <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">Role Name *</label>
+            <input type="text" id="role-name" required placeholder="e.g. Project Manager or IT Team"
+              class="w-full px-3.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-semibold" />
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 dark:text-slate-300 mb-1">Filter Permissions</label>
+            <input type="text" id="role-perm-search" oninput="filterRolePermissions(this.value)" placeholder="Search e.g. projects, tasks, meetings, users..."
+              class="w-full px-3.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
+          </div>
+        </div>
+
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-200 dark:border-slate-700">
+            <div class="flex items-center gap-2">
+              <label class="font-bold text-slate-800 dark:text-white text-xs">Module Permissions</label>
+              <span id="role-perm-selected-count" class="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold text-[11px]">0 selected</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="setAllRolePermissions(true)" class="px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-semibold hover:bg-blue-100">
+                ✓ Select All
+              </button>
+              <button type="button" onclick="setAllRolePermissions(false)" class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 font-semibold hover:bg-slate-200">
+                ✕ Deselect All
+              </button>
+            </div>
+          </div>
+          <div id="role-permissions-checkboxes" class="space-y-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-1"></div>
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+          <button type="button" onclick="closeRoleModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 font-semibold">Cancel</button>
+          <button type="submit" class="px-6 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-sm">Save Role</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 9: PROJECT DETAILED VIEW (Inline Task Creation/Assignment + Timeline + Comments & @Tagging)
+  ========================================================== -->
+  <div id="project-detail-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-5xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-4 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 space-y-2.5">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-bold uppercase">PROJECT DETAILED VIEW</span>
+            <h3 id="detail-proj-title" class="text-base font-bold text-slate-900 dark:text-white mt-0.5 truncate">Project Details</h3>
+            <p id="detail-proj-meta" class="text-xs text-slate-500"></p>
+          </div>
+          <button onclick="closeProjectDetailModal()" title="Close"
+            class="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="detail-proj-status-select" class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-xs font-semibold"></select>
+          <button id="detail-add-task-btn" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 text-xs font-medium">Full Task Form</button>
+          <button id="detail-edit-proj-btn" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 text-xs font-medium">Edit Project</button>
+        </div>
+      </div>
+
+      <div class="p-6 overflow-y-auto space-y-6 custom-scrollbar text-xs">
+        <div id="detail-proj-desc" class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 leading-relaxed"></div>
+
+        <!-- 1. INLINE CREATE & ASSIGN TASK IN THIS PROJECT -->
+        <div class="p-4 rounded-xl bg-blue-50/40 dark:bg-slate-900 border border-blue-200 dark:border-slate-700 space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">
+              + Quick Create & Assign Task Inside This Project
+            </h4>
+            <span class="text-[11px] text-slate-500">Automatically notifies & emails assigned members</span>
+          </div>
+          <form id="proj-inline-task-form" class="space-y-3">
+            <input type="hidden" id="pit-project-id" />
+            <div class="grid grid-cols-1 sm:grid-cols-6 gap-2.5">
+              <input type="text" id="pit-title" required placeholder="Task title (e.g. Setup CRM Landing Page)..."
+                class="sm:col-span-2 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+              <select id="pit-status" class="px-2.5 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></select>
+              <select id="pit-priority" class="px-2.5 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></select>
+              <input type="date" id="pit-due-date" class="px-2.5 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+              <div class="flex items-center gap-1">
+                <input type="time" id="pit-start-time" value="09:00" title="Start Time" class="w-1/2 px-1.5 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-[11px]" />
+                <input type="time" id="pit-end-time" value="11:00" title="End Time" class="w-1/2 px-1.5 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-[11px]" />
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-semibold text-slate-700 dark:text-slate-300">Assign To:</span>
+                <div id="pit-users-checkboxes" class="flex flex-wrap gap-2"></div>
+              </div>
+              <button type="submit" class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold shrink-0">
+                + Add & Assign Task
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- 2. PROJECT TASKS TABLE -->
+        <div>
+          <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2.5">Project Tasks (Click View Task to see Subtasks, Timeline & Comments)</h4>
+          <div class="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-500">
+                  <th class="py-2.5 px-3">Task</th>
+                  <th class="py-2.5 px-3">Time Slot</th>
+                  <th class="py-2.5 px-3">Assignees</th>
+                  <th class="py-2.5 px-3">Status</th>
+                  <th class="py-2.5 px-3">Priority</th>
+                  <th class="py-2.5 px-3">Due Date</th>
+                  <th class="py-2.5 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody id="detail-proj-tasks-tbody" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 3. TWO-COLUMN BOTTOM: PROJECT DISCUSSION (@TAGGING) & STATUS HISTORY TIMELINE -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Project Comments & @Tagging -->
+          <div class="p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 flex flex-col justify-between space-y-3">
+            <div>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2.5">
+                💬 Project Comments & Team @Tagging
+              </h4>
+              <div id="detail-proj-comments-list" class="space-y-2.5 max-h-60 overflow-y-auto custom-scrollbar pr-1 mb-3"></div>
+            </div>
+
+            <form id="proj-detail-comment-form" class="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2.5">
+              <div>
+                <label class="block font-semibold text-slate-600 dark:text-slate-400 mb-1">Click to @Tag & Notify Team Members:</label>
+                <div id="detail-proj-tag-pills" class="flex flex-wrap gap-1.5"></div>
+              </div>
+              <textarea id="detail-proj-comment-input" rows="2" required placeholder="Write a project update or @tag a team member..."
+                class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></textarea>
+              <div class="flex items-center justify-between">
+                <label class="flex items-center gap-1.5 cursor-pointer text-slate-500">
+                  <input type="checkbox" id="detail-proj-comment-email" checked class="rounded text-blue-600" />
+                  <span>Send email to tagged members</span>
+                </label>
+                <button type="submit" class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                  Post Comment & Notify
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Project Status History Timeline -->
+          <div class="p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2.5">
+              🕒 Project Status History Timeline
+            </h4>
+            <div id="detail-proj-timeline" class="space-y-2 max-h-80 overflow-y-auto custom-scrollbar"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 10: UNIFIED TASK DETAILED VIEW (View Task + Subtasks + Timeline + Comments & @Tagging)
+  ========================================================== -->
+  <div id="discussion-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="w-full max-w-5xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-4 sm:px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-900/40 space-y-2.5">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="disc-entity-badge" class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-bold uppercase">VIEW TASK</span>
+              <span id="disc-time-slot-badge"></span>
+            </div>
+            <h3 id="disc-title" class="text-base font-bold text-slate-900 dark:text-white mt-0.5">Task Detailed View</h3>
+            <p id="disc-subtitle-meta" class="text-xs text-slate-500"></p>
+          </div>
+          <button onclick="closeDiscussionModal()" title="Close"
+            class="shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-700 transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <div id="disc-quick-status-bar" class="flex items-center gap-1.5">
+            <span class="text-xs font-semibold text-slate-500">Status:</span>
+            <select id="disc-status-select" class="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-xs font-semibold"></select>
+          </div>
+          <button id="disc-edit-entity-btn" class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 text-xs font-medium">
+            Edit Full Details
+          </button>
+        </div>
+      </div>
+
+      <div class="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar text-xs">
+        <!-- Task Description -->
+        <div id="disc-description-box" class="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 leading-relaxed"></div>
+
+        <!-- 1. SUBTASKS SECTION (Only visible when viewing a Task) -->
+        <div id="disc-subtasks-section" class="p-4 rounded-xl bg-blue-50/30 dark:bg-slate-900 border border-blue-200 dark:border-slate-700 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">
+                Subtasks Breakdown & Creation
+              </h4>
+              <p class="text-[11px] text-slate-500">Break this task into smaller actionable subtasks and assign team members</p>
+            </div>
+            <span id="disc-subtasks-count-badge" class="px-2.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold text-xs">0 / 0 Done</span>
+          </div>
+
+          <!-- Inline Create Subtask Form -->
+          <form id="subtask-create-form" class="space-y-2.5 pt-1">
+            <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
+              <input type="text" id="subtask-title" required placeholder="New subtask title..."
+                class="sm:col-span-2 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+              <select id="subtask-status" class="px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></select>
+              <select id="subtask-priority" class="px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600"></select>
+              <input type="date" id="subtask-due-date" class="px-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600" />
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-semibold text-slate-600 dark:text-slate-300">Assign Subtask To:</span>
+                <div id="subtask-users-checkboxes" class="flex flex-wrap gap-2"></div>
+              </div>
+              <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                + Add Subtask
+              </button>
+            </div>
+          </form>
+
+          <!-- Subtasks List Table -->
+          <div class="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-500">
+                  <th class="py-2 px-3">Subtask</th>
+                  <th class="py-2 px-3">Assignees</th>
+                  <th class="py-2 px-3">Priority</th>
+                  <th class="py-2 px-3">Status</th>
+                  <th class="py-2 px-3">Due</th>
+                  <th class="py-2 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody id="disc-subtasks-tbody" class="divide-y divide-slate-200 dark:divide-slate-700"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 2. TWO-COLUMN BOTTOM: COMMENTS & @TAGGING + TASK STATUS TIMELINE -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Left: Comments & @Tagging -->
+          <div class="p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 flex flex-col justify-between space-y-3">
+            <div>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2.5">
+                💬 Comments & Team @Tagging
+              </h4>
+              <div id="disc-comments-list" class="space-y-2.5 max-h-60 overflow-y-auto custom-scrollbar pr-1 mb-3"></div>
+            </div>
+
+            <form id="discussion-form" class="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2.5">
+              <input type="hidden" id="disc-type" />
+              <input type="hidden" id="disc-id" />
+
+              <div>
+                <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Click to @Tag & Notify Team Members:
+                </label>
+                <div id="disc-tag-users-pills" class="flex flex-wrap gap-1.5"></div>
+              </div>
+
+              <div>
+                <textarea id="disc-content" rows="2" required placeholder="Write a comment or update... (Click a member above or type @Name to tag)"
+                  class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600"></textarea>
+              </div>
+
+              <div class="flex items-center justify-between">
+                <label class="flex items-center gap-1.5 cursor-pointer text-slate-600 dark:text-slate-300">
+                  <input type="checkbox" id="disc-send-email" checked class="rounded text-blue-600" />
+                  <span>Also send email alert to tagged members</span>
+                </label>
+                <button type="submit" class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                  Post Comment & Notify
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Right: Task Status History Timeline -->
+          <div class="p-4 rounded-xl bg-slate-50/70 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2.5">
+              🕒 Status History Timeline
+            </h4>
+            <div id="disc-timeline-list" class="space-y-2.5 max-h-80 overflow-y-auto custom-scrollbar"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
