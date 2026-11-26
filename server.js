@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -1062,6 +1063,145 @@ app.post('/api/auth/verify-password', authMiddleware, async (req, res) => {
     const valid = await verifyLaravelPassword(String(password), rows[0].password);
     if (!valid) return res.status(401).json({ error: true, message: 'Incorrect password. Please try again.' });
     res.json({ error: false, message: 'Password verified' });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Helper: Load & Save Password Reset OTP Store in `settings` (`ceo_password_resets`)
+async function getPasswordResetMap() {
+  try {
+    const [rows] = await pool.query("SELECT value FROM settings WHERE variable = 'ceo_password_resets' LIMIT 1");
+    if (!rows.length || !rows[0].value) return {};
+    const parsed = JSON.parse(rows[0].value);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function savePasswordResetMap(mapObj) {
+  const now = Date.now();
+  // Prune expired entries
+  const clean = {};
+  for (const [k, v] of Object.entries(mapObj || {})) {
+    if (v && v.expiresAt && v.expiresAt > now) clean[k] = v;
+  }
+  const payload = JSON.stringify(clean);
+  const [rows] = await pool.query("SELECT id FROM settings WHERE variable = 'ceo_password_resets' LIMIT 1");
+  if (rows.length) {
+    await pool.query("UPDATE settings SET value = ?, updated_at = NOW() WHERE variable = 'ceo_password_resets'", [payload]);
+  } else {
+    await pool.query("INSERT INTO settings (variable, value, created_at, updated_at) VALUES ('ceo_password_resets', ?, NOW(), NOW())", [payload]);
+  }
+}
+
+// Step 1: Request 6-Digit Password Reset Code via Email
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const emailRaw = String(req.body?.email || '').trim().toLowerCase();
+    if (!emailRaw || !emailRaw.includes('@')) {
+      return res.status(400).json({ error: true, message: 'Please enter a valid email address.' });
+    }
+
+    const [users] = await pool.query('SELECT id, first_name, last_name, email, status FROM users WHERE LOWER(email) = ? LIMIT 1', [emailRaw]);
+    if (!users.length) {
+      return res.status(404).json({ error: true, message: 'No account found with that email address.' });
+    }
+    const user = users[0];
+    if (Number(user.status) === 0) {
+      return res.status(403).json({ error: true, message: 'This account is currently deactivated. Please contact an administrator.' });
+    }
+
+    const mailSetup = await getEmailTransporter();
+    if (!mailSetup) {
+      return res.status(500).json({ error: true, message: 'SMTP email service is not configured yet. Please contact your Admin.' });
+    }
+
+    const otpCode = String(crypto.randomInt(100000, 999999));
+    const resetMap = await getPasswordResetMap();
+    resetMap[emailRaw] = {
+      userId: user.id,
+      code: otpCode,
+      expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
+      attempts: 0
+    };
+    await savePasswordResetMap(resetMap);
+
+    const loginUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+    await mailSetup.transporter.sendMail({
+      from: `"${mailSetup.companyTitle}" <${mailSetup.fromAddress}>`,
+      to: user.email,
+      subject: `🔐 Password Reset Code — ${mailSetup.companyTitle}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+          <div style="background: #1d4ed8; color: #ffffff; padding: 18px 24px;">
+            <h2 style="margin: 0; font-size: 17px;">Password Reset Request</h2>
+          </div>
+          <div style="padding: 24px; color: #334155; font-size: 14px; line-height: 1.6;">
+            <p style="margin-top: 0;">Hi <strong>${user.first_name}</strong>,</p>
+            <p>We received a request to reset your password for <strong>${mailSetup.companyTitle}</strong>. Enter the 6-digit verification code below on the login screen:</p>
+            <div style="text-align: center; margin: 22px 0;">
+              <span style="display: inline-block; padding: 14px 28px; font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #eff6ff; color: #1d4ed8; border: 2px dashed #93c5fd; border-radius: 10px;">
+                ${otpCode}
+              </span>
+            </div>
+            <p style="font-size: 12px; color: #64748b;">This code expires in <strong>15 minutes</strong>. If you didn't request a password reset, you can safely ignore this email.</p>
+            <p style="font-size: 12px; color: #64748b; margin-bottom: 0;">Dashboard: <a href="${loginUrl}" style="color: #2563eb;">${loginUrl}</a></p>
+          </div>
+        </div>
+      `
+    });
+
+    cronState.emailsDispatched++;
+    addCronLog('EMAIL', `Sent password reset code to ${user.email}`);
+    res.json({ error: false, message: `A 6-digit reset code has been sent to ${user.email}. Please check your inbox.` });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message || 'Failed to send reset email' });
+  }
+});
+
+// Step 2: Verify 6-Digit Code & Set New Password
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const emailRaw = String(req.body?.email || '').trim().toLowerCase();
+    const code = String(req.body?.code || '').trim();
+    const newPassword = String(req.body?.new_password || '');
+
+    if (!emailRaw || !code || !newPassword) {
+      return res.status(400).json({ error: true, message: 'Email, reset code, and new password are required.' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: true, message: 'New password must be at least 6 characters long.' });
+    }
+
+    const resetMap = await getPasswordResetMap();
+    const entry = resetMap[emailRaw];
+    if (!entry || Date.now() > entry.expiresAt) {
+      return res.status(400).json({ error: true, message: 'Reset code is invalid or expired. Please request a new code.' });
+    }
+
+    if (entry.attempts >= 5) {
+      delete resetMap[emailRaw];
+      await savePasswordResetMap(resetMap);
+      return res.status(429).json({ error: true, message: 'Too many invalid attempts. Please request a new reset code.' });
+    }
+
+    if (entry.code !== code) {
+      entry.attempts = (entry.attempts || 0) + 1;
+      resetMap[emailRaw] = entry;
+      await savePasswordResetMap(resetMap);
+      return res.status(400).json({ error: true, message: 'Incorrect reset code. Please check your email and try again.' });
+    }
+
+    const hashed = await hashLaravelPassword(newPassword);
+    await pool.query('UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?', [hashed, entry.userId]);
+
+    delete resetMap[emailRaw];
+    await savePasswordResetMap(resetMap);
+
+    addCronLog('AUTH', `Password reset completed for ${emailRaw}`);
+    res.json({ error: false, message: 'Your password has been updated! You can now sign in with your new password.' });
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
   }
@@ -4190,7 +4330,61 @@ app.post('/api/users', authMiddleware, async (req, res) => {
     }
 
     await conn.commit();
-    res.json({ error: false, message: 'User created and synced with Laravel database', id: newUserId });
+
+    // Send Welcome & Login Credentials Email to the newly added user
+    let emailSent = false;
+    try {
+      const mailSetup = await getEmailTransporter();
+      if (mailSetup) {
+        const [[roleRow]] = await pool.query('SELECT name FROM roles WHERE id = ? LIMIT 1', [Number(role_id)]);
+        const [wsRows] = wsIds.length
+          ? await pool.query('SELECT title FROM workspaces WHERE id IN (?)', [wsIds])
+          : [[]];
+        const roleLabel = roleRow ? roleRow.name : 'Team Member';
+        const wsLabel = wsRows.map(w => w.title).join(', ') || 'Default Workspace';
+        const loginUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+        const creatorName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Admin';
+
+        await mailSetup.transporter.sendMail({
+          from: `"${mailSetup.companyTitle}" <${mailSetup.fromAddress}>`,
+          to: email.trim(),
+          subject: `👋 Welcome to ${mailSetup.companyTitle} — Your Account Details`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+              <div style="background: #1d4ed8; color: #ffffff; padding: 18px 24px;">
+                <h2 style="margin: 0; font-size: 18px;">Welcome to ${mailSetup.companyTitle}</h2>
+              </div>
+              <div style="padding: 24px; color: #334155; font-size: 14px; line-height: 1.6;">
+                <p style="margin-top: 0;">Hi <strong>${first_name.trim()}</strong>,</p>
+                <p><strong>${creatorName}</strong> has added you to <strong>${mailSetup.companyTitle}</strong>. Here are your account details to get started:</p>
+                <div style="background: #f8fafc; padding: 16px; border-left: 4px solid #2563eb; border-radius: 6px; margin: 16px 0;">
+                  <p style="margin: 0 0 6px 0;"><strong>Login URL:</strong> <a href="${loginUrl}" style="color: #2563eb;">${loginUrl}</a></p>
+                  <p style="margin: 0 0 6px 0;"><strong>Email:</strong> ${email.trim()}</p>
+                  <p style="margin: 0 0 6px 0;"><strong>Temporary Password:</strong> <code>${password}</code></p>
+                  <p style="margin: 0 0 6px 0;"><strong>Role:</strong> ${roleLabel}</p>
+                  <p style="margin: 0;"><strong>Workspace(s):</strong> ${wsLabel}</p>
+                </div>
+                <p style="font-size: 12px; color: #64748b; margin-bottom: 0;">Tip: You can change your password anytime using the <strong>Forgot Password</strong> option on the login screen.</p>
+              </div>
+            </div>
+          `
+        });
+        emailSent = true;
+        cronState.emailsDispatched++;
+        addCronLog('EMAIL', `Sent welcome & credentials email to new user ${email.trim()}`);
+      }
+    } catch (mailErr) {
+      addCronLog('ERROR', `Failed to send welcome email to ${email.trim()}: ${mailErr.message}`);
+    }
+
+    res.json({
+      error: false,
+      emailSent,
+      message: emailSent
+        ? `User created & welcome email sent to ${email.trim()}`
+        : 'User created (SMTP email not sent — check Email Settings)',
+      id: newUserId
+    });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ error: true, message: err.message });

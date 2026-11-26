@@ -4486,7 +4486,9 @@ function bindEvents() {
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errEl = document.getElementById('login-error');
+    const okEl = document.getElementById('login-success');
     errEl.classList.add('hidden');
+    if (okEl) okEl.classList.add('hidden');
     const email = document.getElementById('login-email').value;
     const password = document.getElementById('login-password').value;
 
@@ -4503,6 +4505,103 @@ function bindEvents() {
     } catch (err) {
       errEl.textContent = err.message || 'Invalid credentials';
       errEl.classList.remove('hidden');
+    }
+  });
+
+  // Forgot Password UI Handlers
+  window.openForgotPasswordView = function() {
+    document.getElementById('login-form').classList.add('hidden');
+    document.getElementById('forgot-password-panel').classList.remove('hidden');
+    document.getElementById('forgot-step1-form').classList.remove('hidden');
+    document.getElementById('forgot-step2-form').classList.add('hidden');
+    document.getElementById('fp-error').classList.add('hidden');
+    document.getElementById('fp-step2-error').classList.add('hidden');
+    const existingEmail = document.getElementById('login-email').value.trim();
+    if (existingEmail) document.getElementById('fp-email').value = existingEmail;
+  };
+
+  window.closeForgotPasswordView = function(successMsg = '') {
+    document.getElementById('forgot-password-panel').classList.add('hidden');
+    document.getElementById('login-form').classList.remove('hidden');
+    document.getElementById('login-error').classList.add('hidden');
+    const okEl = document.getElementById('login-success');
+    if (okEl) {
+      if (successMsg) {
+        okEl.textContent = successMsg;
+        okEl.classList.remove('hidden');
+      } else {
+        okEl.classList.add('hidden');
+      }
+    }
+  };
+
+  window.resendForgotPasswordCode = function() {
+    document.getElementById('forgot-step2-form').classList.add('hidden');
+    document.getElementById('forgot-step1-form').classList.remove('hidden');
+    document.getElementById('fp-error').classList.add('hidden');
+  };
+
+  document.getElementById('forgot-step1-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('fp-error');
+    const btn = document.getElementById('fp-send-btn');
+    errEl.classList.add('hidden');
+    const email = document.getElementById('fp-email').value.trim();
+    btn.disabled = true;
+    btn.textContent = 'Sending code...';
+    try {
+      const res = await apiFetch('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email })
+      });
+      document.getElementById('fp-sent-banner').textContent = res.message;
+      document.getElementById('fp-code').value = '';
+      document.getElementById('fp-new-password').value = '';
+      document.getElementById('fp-confirm-password').value = '';
+      document.getElementById('forgot-step1-form').classList.add('hidden');
+      document.getElementById('forgot-step2-form').classList.remove('hidden');
+    } catch (err) {
+      errEl.textContent = err.message || 'Could not send reset code';
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send 6-Digit Reset Code';
+    }
+  });
+
+  document.getElementById('forgot-step2-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('fp-step2-error');
+    const btn = document.getElementById('fp-reset-btn');
+    errEl.classList.add('hidden');
+
+    const email = document.getElementById('fp-email').value.trim();
+    const code = document.getElementById('fp-code').value.trim();
+    const newPassword = document.getElementById('fp-new-password').value;
+    const confirmPassword = document.getElementById('fp-confirm-password').value;
+
+    if (newPassword !== confirmPassword) {
+      errEl.textContent = 'Passwords do not match.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Updating password...';
+    try {
+      const res = await apiFetch('/api/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email, code, new_password: newPassword })
+      });
+      document.getElementById('login-email').value = email;
+      document.getElementById('login-password').value = '';
+      closeForgotPasswordView(res.message);
+    } catch (err) {
+      errEl.textContent = err.message || 'Failed to reset password';
+      errEl.classList.remove('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Reset Password';
     }
   });
 
@@ -4775,8 +4874,8 @@ function bindEvents() {
         await apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
         showToast('Team member updated');
       } else {
-        await apiFetch('/api/users', { method: 'POST', body: JSON.stringify(payload) });
-        showToast('Team member created');
+        const res = await apiFetch('/api/users', { method: 'POST', body: JSON.stringify(payload) });
+        showToast(res.message || 'Team member created & welcome email sent');
       }
       closeUserModal();
       await loadAllData();
