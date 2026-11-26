@@ -1229,7 +1229,7 @@ function renderProjectsViews() {
   kanbanContainer.innerHTML = state.meta.statuses.map(st => {
     const colProjects = filtered.filter(p => Number(p.status_id) === Number(st.id));
     return `
-      <div class="bg-slate-100/80 dark:bg-slate-800/60 rounded-xl p-3.5 border border-slate-200 dark:border-slate-700">
+      <div class="min-w-[275px] flex-1 max-w-[340px] shrink-0 bg-slate-100/80 dark:bg-slate-800/60 rounded-xl p-3.5 border border-slate-200 dark:border-slate-700">
         <div class="flex items-center justify-between mb-3 px-1">
           <span class="px-2.5 py-0.5 rounded text-xs font-semibold border ${badgeClass(st.color)}">${st.title}</span>
           <span class="text-xs font-bold text-slate-500">${colProjects.length}</span>
@@ -1428,7 +1428,7 @@ function renderTasksViews() {
   kanbanContainer.innerHTML = state.meta.statuses.map(st => {
     const colTasks = filtered.filter(t => Number(t.status_id) === Number(st.id));
     return `
-      <div class="bg-slate-100/80 dark:bg-slate-800/60 rounded-xl p-3.5 border border-slate-200 dark:border-slate-700">
+      <div class="min-w-[275px] flex-1 max-w-[340px] shrink-0 bg-slate-100/80 dark:bg-slate-800/60 rounded-xl p-3.5 border border-slate-200 dark:border-slate-700">
         <div class="flex items-center justify-between mb-3 px-1">
           <span class="px-2.5 py-0.5 rounded text-xs font-semibold border ${badgeClass(st.color)}">${st.title}</span>
           <span class="text-xs font-bold text-slate-500">${colTasks.length}</span>
