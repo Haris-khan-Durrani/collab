@@ -72,6 +72,65 @@ async function saveMeetingGovernanceStore(store) {
   }
 }
 
+// ==========================================
+// WORKSPACE 30-DAY DELETION HOLD STORAGE (Settings JSON)
+// ==========================================
+async function getPendingWorkspaceDeletions() {
+  try {
+    const [rows] = await pool.query("SELECT value FROM settings WHERE variable = 'ceo_workspace_deletions' LIMIT 1");
+    if (rows.length && rows[0].value) {
+      const parsed = JSON.parse(rows[0].value);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch (e) {
+    console.warn('Load workspace deletions warning:', e.message);
+  }
+  return [];
+}
+
+async function savePendingWorkspaceDeletions(list) {
+  const jsonStr = JSON.stringify(list || []);
+  const [rows] = await pool.query("SELECT id FROM settings WHERE variable = 'ceo_workspace_deletions' LIMIT 1");
+  if (rows.length) {
+    await pool.query("UPDATE settings SET value = ?, updated_at = NOW() WHERE variable = 'ceo_workspace_deletions'", [jsonStr]);
+  } else {
+    await pool.query("INSERT INTO settings (variable, value, created_at, updated_at) VALUES ('ceo_workspace_deletions', ?, NOW(), NOW())", [jsonStr]);
+  }
+}
+
+async function getHeldWorkspaceIds() {
+  const list = await getPendingWorkspaceDeletions();
+  return list.map(x => Number(x.workspace_id)).filter(Boolean);
+}
+
+async function permanentlyPurgeWorkspace(wsId) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM task_user WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id = ?)', [wsId]);
+    await conn.query('DELETE FROM task_time_entries WHERE workspace_id = ?', [wsId]);
+    await conn.query('DELETE FROM recurring_tasks WHERE task_id IN (SELECT id FROM tasks WHERE workspace_id = ?)', [wsId]);
+    await conn.query('DELETE FROM tasks WHERE workspace_id = ?', [wsId]);
+    await conn.query('DELETE FROM project_user WHERE project_id IN (SELECT id FROM projects WHERE workspace_id = ?)', [wsId]);
+    await conn.query('DELETE FROM client_project WHERE project_id IN (SELECT id FROM projects WHERE workspace_id = ?)', [wsId]);
+    await conn.query('DELETE FROM project_tag WHERE project_id IN (SELECT id FROM projects WHERE workspace_id = ?)', [wsId]);
+    await conn.query('DELETE FROM projects WHERE workspace_id = ?', [wsId]);
+    await conn.query('DELETE FROM meeting_user WHERE meeting_id IN (SELECT id FROM meetings WHERE workspace_id = ?)', [wsId]);
+    await conn.query('DELETE FROM client_meeting WHERE meeting_id IN (SELECT id FROM meetings WHERE workspace_id = ?)', [wsId]);
+    await conn.query('DELETE FROM meetings WHERE workspace_id = ?', [wsId]);
+    await conn.query('DELETE FROM user_workspace WHERE workspace_id = ?', [wsId]);
+    await conn.query('DELETE FROM client_workspace WHERE workspace_id = ?', [wsId]);
+    await conn.query('DELETE FROM tags WHERE workspace_id = ?', [wsId]);
+    await conn.query('DELETE FROM workspaces WHERE id = ?', [wsId]);
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 function addCronLog(type, message) {
   cronState.recentLogs.unshift({
     time: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -780,6 +839,34 @@ async function runAutomatedCronJobs(isManual = false) {
       }
     }
 
+    // ----------------------------------------------------
+    // JOB 6: AUTO-PURGE WORKSPACES AFTER 30-DAY DELETION HOLD
+    // ----------------------------------------------------
+    const pendingWsDeletions = await getPendingWorkspaceDeletions();
+    if (pendingWsDeletions.length > 0) {
+      const nowMs = Date.now();
+      const remaining = [];
+      let purgedAny = false;
+      for (const item of pendingWsDeletions) {
+        const purgeMs = new Date(item.purge_at).getTime();
+        if (!isNaN(purgeMs) && nowMs >= purgeMs) {
+          try {
+            await permanentlyPurgeWorkspace(Number(item.workspace_id));
+            purgedAny = true;
+            addCronLog('WS_PURGE', `Permanently removed workspace "${item.title}" (#${item.workspace_id}) after 30-day hold expired`);
+          } catch (purgeErr) {
+            console.warn('Workspace purge error:', purgeErr.message);
+            remaining.push(item);
+          }
+        } else {
+          remaining.push(item);
+        }
+      }
+      if (purgedAny) {
+        await savePendingWorkspaceDeletions(remaining);
+      }
+    }
+
     if (isManual) {
       addCronLog('MANUAL_RUN', `Manual cron run finished (Recurring: ${summary.recurringCreated}, Reminders: ${summary.remindersSent}, Meetings: ${summary.meetingAlerts})`);
     }
@@ -966,12 +1053,30 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   res.json({ error: false, user: req.user });
 });
 
+app.post('/api/auth/verify-password', authMiddleware, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: true, message: 'Password is required' });
+    const [rows] = await pool.query('SELECT password FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+    if (!rows.length) return res.status(404).json({ error: true, message: 'User not found' });
+    const valid = await verifyLaravelPassword(String(password), rows[0].password);
+    if (!valid) return res.status(401).json({ error: true, message: 'Incorrect password. Please try again.' });
+    res.json({ error: false, message: 'Password verified' });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 // ==========================================
 // 2. BOOTSTRAP & METADATA ENDPOINT
 // ==========================================
 app.get('/api/meta', authMiddleware, async (req, res) => {
   try {
     const isAdmin = req.user.isAdminOrHasAllDataAccess;
+    const pendingDeletions = await getPendingWorkspaceDeletions();
+    const heldWsIds = pendingDeletions.map(x => Number(x.workspace_id)).filter(Boolean);
+    const heldNotInSql = heldWsIds.length ? `w.id NOT IN (${heldWsIds.join(',')})` : '1=1';
+
     let workspacesQuery = `
       SELECT w.*,
         (SELECT COUNT(*) FROM projects p WHERE p.workspace_id = w.id) AS projects_count,
@@ -979,10 +1084,11 @@ app.get('/api/meta', authMiddleware, async (req, res) => {
         (SELECT COUNT(*) FROM user_workspace uw WHERE uw.workspace_id = w.id) AS users_count,
         (SELECT COUNT(*) FROM client_workspace cw WHERE cw.workspace_id = w.id) AS clients_count
       FROM workspaces w
+      WHERE ${heldNotInSql}
     `;
     let wsParams = [];
     if (!isAdmin) {
-      workspacesQuery += ` WHERE w.id IN (SELECT workspace_id FROM user_workspace WHERE user_id = ?) OR w.user_id = ?`;
+      workspacesQuery += ` AND (w.id IN (SELECT workspace_id FROM user_workspace WHERE user_id = ?) OR w.user_id = ?)`;
       wsParams = [req.user.id, req.user.id];
     }
     workspacesQuery += ` ORDER BY w.id DESC`;
@@ -1049,6 +1155,7 @@ app.get('/api/meta', authMiddleware, async (req, res) => {
     res.json({
       error: false,
       workspaces,
+      pendingDeletionWorkspaces: (req.user.isStrictAdmin || req.user.permissions.includes('delete_workspaces')) ? pendingDeletions : [],
       statuses,
       priorities,
       roles,
@@ -1075,11 +1182,18 @@ app.get('/api/overview', authMiddleware, async (req, res) => {
     const startDate = req.query.start_date || null;
     const endDate = req.query.end_date || null;
     const isAdmin = req.user.isAdminOrHasAllDataAccess;
+    const heldWsIds = await getHeldWorkspaceIds();
+    const heldCsv = heldWsIds.length ? heldWsIds.join(',') : null;
 
     let projWhere = 'WHERE 1=1';
     let projParams = [];
     let taskWhere = 'WHERE 1=1';
     let taskParams = [];
+
+    if (heldCsv) {
+      projWhere += ` AND p.workspace_id NOT IN (${heldCsv})`;
+      taskWhere += ` AND t.workspace_id NOT IN (${heldCsv})`;
+    }
 
     if (workspaceId) {
       projWhere += ' AND p.workspace_id = ?';
@@ -1117,6 +1231,9 @@ app.get('/api/overview', authMiddleware, async (req, res) => {
       OR t.id IN (SELECT task_id FROM task_time_entries WHERE entry_date = CURDATE())
     )`;
     const todayTaskParams = [];
+    if (heldCsv) {
+      todayTaskWhere += ` AND t.workspace_id NOT IN (${heldCsv})`;
+    }
     if (workspaceId) {
       todayTaskWhere += ' AND t.workspace_id = ?';
       todayTaskParams.push(workspaceId);
@@ -1127,21 +1244,17 @@ app.get('/api/overview', authMiddleware, async (req, res) => {
     }
 
     const uidNum = Number(req.user.id);
-    const userProjectScopeSql = isAdmin
-      ? ''
-      : `AND (p.id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}) OR p.created_by = ${uidNum})`;
-    const userTaskScopeSql = isAdmin
-      ? ''
-      : `AND (t.id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum}) OR t.created_by = ${uidNum} OR t.project_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}))`;
-    const userMeetingScopeSql = isAdmin
-      ? ''
-      : `AND (m.id IN (SELECT meeting_id FROM meeting_user WHERE user_id = ${uidNum}) OR m.user_id = '${uidNum}')`;
-    const sharedProjSubSql = isAdmin
-      ? ''
-      : `AND p2.id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum})`;
-    const sharedTaskSubSql = isAdmin
-      ? ''
-      : `AND (t2.id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum}) OR t2.created_by = ${uidNum} OR t2.project_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}))`;
+    const heldProjSql = heldCsv ? `AND p.workspace_id NOT IN (${heldCsv})` : '';
+    const heldTaskSql = heldCsv ? `AND t.workspace_id NOT IN (${heldCsv})` : '';
+    const heldMeetSql = heldCsv ? `AND m.workspace_id NOT IN (${heldCsv})` : '';
+    const heldP2Sql = heldCsv ? `AND p2.workspace_id NOT IN (${heldCsv})` : '';
+    const heldT2Sql = heldCsv ? `AND t2.workspace_id NOT IN (${heldCsv})` : '';
+
+    const userProjectScopeSql = `${heldProjSql} ${isAdmin ? '' : `AND (p.id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}) OR p.created_by = ${uidNum})`}`;
+    const userTaskScopeSql = `${heldTaskSql} ${isAdmin ? '' : `AND (t.id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum}) OR t.created_by = ${uidNum} OR t.project_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}))`}`;
+    const userMeetingScopeSql = `${heldMeetSql} ${isAdmin ? '' : `AND (m.id IN (SELECT meeting_id FROM meeting_user WHERE user_id = ${uidNum}) OR m.user_id = '${uidNum}')`}`;
+    const sharedProjSubSql = `${heldP2Sql} ${isAdmin ? '' : `AND p2.id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum})`}`;
+    const sharedTaskSubSql = `${heldT2Sql} ${isAdmin ? '' : `AND (t2.id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum}) OR t2.created_by = ${uidNum} OR t2.project_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}))`}`;
     const teamWhereClauses = [];
     const teamParams = [];
     if (workspaceId) {
@@ -1414,21 +1527,17 @@ app.get('/api/calendar-activity', authMiddleware, async (req, res) => {
     const workspaceId = req.query.workspace_id && req.query.workspace_id !== 'all' ? Number(req.query.workspace_id) : null;
     const isAdmin = req.user.isAdminOrHasAllDataAccess;
     const uidNum = Number(req.user.id);
+    const heldWsIds = await getHeldWorkspaceIds();
+    const heldCsv = heldWsIds.length ? heldWsIds.join(',') : null;
 
     const monthStart = `${month}-01`;
     const [yr, mo] = month.split('-').map(Number);
     const lastDay = new Date(yr, mo, 0).getDate();
     const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
 
-    const taskScopeSql = isAdmin
-      ? ''
-      : `AND (t.id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum}) OR t.created_by = ${uidNum} OR t.project_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}))`;
-    const meetingScopeSql = isAdmin
-      ? ''
-      : `AND (m.id IN (SELECT meeting_id FROM meeting_user WHERE user_id = ${uidNum}) OR m.user_id = '${uidNum}')`;
-    const activityScopeSql = isAdmin
-      ? ''
-      : `AND (a.actor_id = ${uidNum} OR (a.type = 'project' AND a.type_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum})) OR (a.type = 'task' AND a.type_id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum})))`;
+    const taskScopeSql = `${heldCsv ? `AND t.workspace_id NOT IN (${heldCsv})` : ''} ${isAdmin ? '' : `AND (t.id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum}) OR t.created_by = ${uidNum} OR t.project_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum}))`}`;
+    const meetingScopeSql = `${heldCsv ? `AND m.workspace_id NOT IN (${heldCsv})` : ''} ${isAdmin ? '' : `AND (m.id IN (SELECT meeting_id FROM meeting_user WHERE user_id = ${uidNum}) OR m.user_id = '${uidNum}')`}`;
+    const activityScopeSql = `${heldCsv ? `AND a.workspace_id NOT IN (${heldCsv})` : ''} ${isAdmin ? '' : `AND (a.actor_id = ${uidNum} OR (a.type = 'project' AND a.type_id IN (SELECT project_id FROM project_user WHERE user_id = ${uidNum})) OR (a.type = 'task' AND a.type_id IN (SELECT task_id FROM task_user WHERE user_id = ${uidNum})))`}`;
 
     const [
       [tasks],
@@ -1622,6 +1731,8 @@ app.get('/api/reports/workload', authMiddleware, async (req, res) => {
     const workspaceId = req.query.workspace_id && req.query.workspace_id !== 'all' ? Number(req.query.workspace_id) : null;
     const isAdmin = req.user.isAdminOrHasAllDataAccess;
     const uidNum = Number(req.user.id);
+    const heldWsIds = await getHeldWorkspaceIds();
+    const heldCsv = heldWsIds.length ? heldWsIds.join(',') : null;
 
     // Compute exact date range for selected Week (Mon-Sun) or Month (1st-Last)
     let startDate, endDate, periodLabel;
@@ -1701,6 +1812,7 @@ app.get('/api/reports/workload', authMiddleware, async (req, res) => {
           OR (t.due_date IS NOT NULL AND t.due_date < ? AND (LOWER(s.title) NOT LIKE '%complete%' OR s.id IS NULL) AND COALESCE(t.completion_percentage, 0) < 100)
           OR (t.start_date IS NULL AND t.due_date IS NULL AND (LOWER(s.title) NOT LIKE '%complete%' OR s.id IS NULL))
         )
+        ${heldCsv ? `AND t.workspace_id NOT IN (${heldCsv})` : ''}
         ${workspaceId ? 'AND t.workspace_id = ?' : ''}
         ORDER BY t.id DESC
       `, workspaceId
@@ -1917,10 +2029,14 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
   try {
     const { workspace_id, status_id, priority_id, search, user_id } = req.query;
     const isAdmin = req.user.isAdminOrHasAllDataAccess;
+    const heldWsIds = await getHeldWorkspaceIds();
 
     let where = 'WHERE 1=1';
     const params = [];
 
+    if (heldWsIds.length) {
+      where += ` AND p.workspace_id NOT IN (${heldWsIds.join(',')})`;
+    }
     if (workspace_id && workspace_id !== 'all') {
       where += ' AND p.workspace_id = ?';
       params.push(Number(workspace_id));
@@ -2432,10 +2548,14 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
     const { workspace_id, project_id, status_id, priority_id, user_id, search } = req.query;
     const isAdmin = req.user.isAdminOrHasAllDataAccess;
+    const heldWsIds = await getHeldWorkspaceIds();
 
     let where = 'WHERE 1=1';
     const params = [];
 
+    if (heldWsIds.length) {
+      where += ` AND t.workspace_id NOT IN (${heldWsIds.join(',')})`;
+    }
     if (workspace_id && workspace_id !== 'all') {
       where += ' AND t.workspace_id = ?';
       params.push(Number(workspace_id));
@@ -2941,8 +3061,12 @@ app.delete('/api/tasks/:id', authMiddleware, async (req, res) => {
 app.get('/api/meetings', authMiddleware, async (req, res) => {
   try {
     const { workspace_id, month } = req.query; // month optional e.g. '2026-11'
+    const heldWsIds = await getHeldWorkspaceIds();
     let where = 'WHERE 1=1';
     const params = [];
+    if (heldWsIds.length) {
+      where += ` AND m.workspace_id NOT IN (${heldWsIds.join(',')})`;
+    }
     if (workspace_id && workspace_id !== 'all') {
       where += ' AND m.workspace_id = ?';
       params.push(Number(workspace_id));
@@ -3605,9 +3729,13 @@ app.get('/api/meetings/monthly-report', authMiddleware, async (req, res) => {
   try {
     const month = req.query.month || new Date().toISOString().substring(0, 7); // YYYY-MM
     const workspace_id = req.query.workspace_id;
+    const heldWsIds = await getHeldWorkspaceIds();
 
     let where = 'WHERE DATE_FORMAT(m.start_date_time, "%Y-%m") = ?';
     const params = [month];
+    if (heldWsIds.length) {
+      where += ` AND m.workspace_id NOT IN (${heldWsIds.join(',')})`;
+    }
     if (workspace_id && workspace_id !== 'all') {
       where += ' AND m.workspace_id = ?';
       params.push(Number(workspace_id));
@@ -4103,6 +4231,94 @@ app.post('/api/workspaces', authMiddleware, async (req, res) => {
     res.status(500).json({ error: true, message: err.message });
   } finally {
     conn.release();
+  }
+});
+
+// Schedule Workspace Deletion with 30-Day Safety Hold (Requires Password Verification)
+app.post('/api/workspaces/:id/schedule-delete', authMiddleware, async (req, res) => {
+  const canDelete = req.user.isStrictAdmin || req.user.permissions.includes('delete_workspaces');
+  if (!canDelete) {
+    return res.status(403).json({ error: true, message: 'Only Super Admin / Admin can delete workspaces.' });
+  }
+  try {
+    const wsId = Number(req.params.id);
+    const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ error: true, message: 'Your account password is required to delete a workspace.' });
+    }
+
+    const [uRows] = await pool.query('SELECT password FROM users WHERE id = ? LIMIT 1', [req.user.id]);
+    if (!uRows.length || !(await verifyLaravelPassword(String(password), uRows[0].password))) {
+      return res.status(401).json({ error: true, message: 'Incorrect password. Workspace deletion cancelled.' });
+    }
+
+    const [wsRows] = await pool.query(`
+      SELECT w.id, w.title,
+        (SELECT COUNT(*) FROM projects p WHERE p.workspace_id = w.id) AS projects_count,
+        (SELECT COUNT(*) FROM tasks t WHERE t.workspace_id = w.id) AS tasks_count,
+        (SELECT COUNT(*) FROM user_workspace uw WHERE uw.workspace_id = w.id) AS users_count
+      FROM workspaces w WHERE w.id = ? LIMIT 1
+    `, [wsId]);
+    if (!wsRows.length) {
+      return res.status(404).json({ error: true, message: 'Workspace not found' });
+    }
+
+    const pending = await getPendingWorkspaceDeletions();
+    if (pending.some(x => Number(x.workspace_id) === wsId)) {
+      return res.status(400).json({ error: true, message: 'This workspace is already in the 30-day deletion hold.' });
+    }
+
+    const now = new Date();
+    const purgeDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const actorName = `${req.user.first_name} ${req.user.last_name}`.trim();
+
+    pending.push({
+      workspace_id: wsId,
+      title: wsRows[0].title,
+      projects_count: Number(wsRows[0].projects_count || 0),
+      tasks_count: Number(wsRows[0].tasks_count || 0),
+      users_count: Number(wsRows[0].users_count || 0),
+      requested_by_id: req.user.id,
+      requested_by_name: actorName,
+      requested_at: now.toISOString(),
+      purge_at: purgeDate.toISOString()
+    });
+    await savePendingWorkspaceDeletions(pending);
+
+    addCronLog('WS_HOLD', `${actorName} scheduled workspace "${wsRows[0].title}" (#${wsId}) for 30-day deletion hold (purges ${getLocalDateStr(purgeDate)})`);
+    res.json({
+      error: false,
+      message: `Workspace "${wsRows[0].title}" moved to 30-day deletion hold. You can restore it anytime before ${getLocalDateStr(purgeDate)}.`
+    });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Cancel Deletion & Restore Workspace from 30-Day Hold
+app.post('/api/workspaces/:id/restore', authMiddleware, async (req, res) => {
+  const canRestore = req.user.isStrictAdmin || req.user.permissions.includes('delete_workspaces');
+  if (!canRestore) {
+    return res.status(403).json({ error: true, message: 'Only Super Admin / Admin can restore workspaces.' });
+  }
+  try {
+    const wsId = Number(req.params.id);
+    const pending = await getPendingWorkspaceDeletions();
+    const target = pending.find(x => Number(x.workspace_id) === wsId);
+    if (!target) {
+      return res.status(404).json({ error: true, message: 'Workspace is not in the deletion hold queue.' });
+    }
+    const updated = pending.filter(x => Number(x.workspace_id) !== wsId);
+    await savePendingWorkspaceDeletions(updated);
+
+    const actorName = `${req.user.first_name} ${req.user.last_name}`.trim();
+    addCronLog('WS_RESTORE', `${actorName} stopped deletion and restored workspace "${target.title}" (#${wsId})`);
+    res.json({
+      error: false,
+      message: `Deletion stopped! Workspace "${target.title}" has been restored with all its projects and tasks.`
+    });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
   }
 });
 

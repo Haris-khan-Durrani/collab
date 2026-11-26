@@ -321,7 +321,13 @@ async function loadAllData() {
 
 function populateWorkspaceSelector() {
   const select = document.getElementById('global-workspace-select');
-  const current = state.selectedWorkspace;
+  let current = state.selectedWorkspace;
+  // If previously selected workspace was moved to deletion hold, reset cleanly to 'all'
+  if (current !== 'all' && !state.meta.workspaces.some(w => String(w.id) === String(current))) {
+    current = 'all';
+    state.selectedWorkspace = 'all';
+    localStorage.setItem('ceo_workspace', 'all');
+  }
   select.innerHTML = `<option value="all">All Workspaces (Company-Wide)</option>`;
   state.meta.workspaces.forEach(w => {
     const opt = document.createElement('option');
@@ -1040,6 +1046,40 @@ window.setProjectViewMode = function(mode, rerender = true) {
   if (rerender) renderProjectsViews();
 };
 
+function getCardUrgencyStyle(dueDateVal, statusTitle, completionPct = 0) {
+  const isDone = String(statusTitle || '').toLowerCase().includes('complete') || Number(completionPct) === 100;
+  if (isDone || !dueDateVal) {
+    return {
+      cardCls: 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700',
+      badgeHtml: '',
+      dueTextCls: 'text-slate-500 dark:text-slate-400'
+    };
+  }
+  const dueStr = String(dueDateVal).substring(0, 10);
+  const todayStr = localDateStr(new Date());
+  if (dueStr < todayStr) {
+    // OVERDUE -> Dark Red Highlight
+    return {
+      cardCls: 'bg-red-100/90 dark:bg-red-950/70 border-red-600 dark:border-red-600 border-l-4 border-l-red-700',
+      badgeHtml: `<span class="px-1.5 py-0.5 rounded bg-red-700 text-white text-[9px] font-bold tracking-wide uppercase">Overdue</span>`,
+      dueTextCls: 'text-red-800 dark:text-red-300 font-bold'
+    };
+  }
+  if (dueStr === todayStr) {
+    // DUE TODAY -> Light Red Highlight
+    return {
+      cardCls: 'bg-red-50/90 dark:bg-red-950/30 border-red-300 dark:border-red-800 border-l-4 border-l-red-400',
+      badgeHtml: `<span class="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 text-[9px] font-bold tracking-wide uppercase">Due Today</span>`,
+      dueTextCls: 'text-red-600 dark:text-red-400 font-bold'
+    };
+  }
+  return {
+    cardCls: 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700',
+    badgeHtml: '',
+    dueTextCls: 'text-slate-500 dark:text-slate-400'
+  };
+}
+
 function renderProjectsViews() {
   const filtered = getFilteredProjects();
 
@@ -1133,16 +1173,20 @@ function renderProjectsViews() {
     const compT = Number(p.completed_tasks_count || 0);
     const pct = totalT > 0 ? Math.round((compT / totalT) * 100) : 0;
     const desc = stripHtml(p.description);
+    const urg = getCardUrgencyStyle(p.end_date, p.status_title, pct);
     const teamPills = (p.users || []).map(u =>
       `<span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px]">${u.first_name}</span>`
     ).join(' ');
 
     return `
-      <div class="p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between space-y-4">
+      <div class="p-5 rounded-xl border shadow-sm flex flex-col justify-between space-y-4 ${urg.cardCls}">
         <div>
           <div class="flex items-start justify-between gap-2 mb-2">
-            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">${p.workspace_title || ''}</span>
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">${p.workspace_title || ''}</span>
+              ${urg.badgeHtml}
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
               <span class="px-2 py-0.5 rounded text-[10px] font-medium border ${badgeClass(p.status_color)}">${p.status_title || 'Status'}</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-medium border ${badgeClass(p.priority_color)}">${p.priority_title || 'Normal'}</span>
             </div>
@@ -1166,9 +1210,12 @@ function renderProjectsViews() {
 
           <div class="flex flex-wrap gap-1">${teamPills || '<span class="text-xs text-slate-400">No members assigned</span>'}</div>
 
-          <div class="pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs">
-            <span class="text-slate-400">Due: ${formatDate(p.end_date)}</span>
-            <div class="space-x-1">
+          <div class="pt-3 border-t border-slate-200/70 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono">
+              <span class="text-slate-500">Start: <strong class="text-slate-700 dark:text-slate-200">${formatDate(p.start_date)}</strong></span>
+              <span class="${urg.dueTextCls}">End: <strong>${formatDate(p.end_date)}</strong></span>
+            </div>
+            <div class="space-x-1 shrink-0">
               <button onclick="openTaskModal(null, ${p.id})" class="px-2.5 py-1 rounded bg-blue-50 text-blue-700 font-medium">+ Task</button>
               <button onclick="openProjectModal(${p.id})" class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium">Edit</button>
             </div>
@@ -1192,15 +1239,23 @@ function renderProjectsViews() {
             const totalT = Number(p.tasks_count || 0);
             const compT = Number(p.completed_tasks_count || 0);
             const pct = totalT > 0 ? Math.round((compT / totalT) * 100) : 0;
+            const urg = getCardUrgencyStyle(p.end_date, p.status_title, pct);
             return `
-              <div class="p-3.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs space-y-2">
+              <div class="p-3.5 rounded-lg border shadow-xs space-y-2 ${urg.cardCls}">
                 <div class="flex items-start justify-between gap-2">
                   <button onclick="openProjectDetailModal(${p.id})" class="font-semibold text-xs text-slate-900 dark:text-white hover:text-blue-600 text-left">
                     ${p.title}
                   </button>
-                  <span class="px-1.5 py-0.5 rounded text-[10px] border ${badgeClass(p.priority_color)}">${p.priority_title || 'Normal'}</span>
+                  <div class="flex items-center gap-1 shrink-0">
+                    ${urg.badgeHtml}
+                    <span class="px-1.5 py-0.5 rounded text-[10px] border ${badgeClass(p.priority_color)}">${p.priority_title || 'Normal'}</span>
+                  </div>
                 </div>
-                <div class="flex items-center justify-between text-[11px] text-slate-500">
+                <div class="flex items-center justify-between text-[10px] font-mono text-slate-500">
+                  <span>Start: ${formatDate(p.start_date)}</span>
+                  <span class="${urg.dueTextCls}">End: ${formatDate(p.end_date)}</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200/60 dark:border-slate-700">
                   <span>${compT}/${totalT} tasks (${pct}%)</span>
                   <button onclick="openProjectModal(${p.id})" class="text-blue-600 hover:underline">Edit</button>
                 </div>
@@ -1381,19 +1436,30 @@ function renderTasksViews() {
         <div class="space-y-2.5">
           ${colTasks.map(t => {
             const userNames = (t.users || []).map(u => u.first_name).join(', ');
+            const urg = getCardUrgencyStyle(t.due_date, t.status_title, t.completion_percentage);
             return `
-              <div class="p-3.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs space-y-2">
+              <div class="p-3.5 rounded-lg border shadow-xs space-y-2 ${urg.cardCls}">
                 <div class="flex items-start justify-between gap-2">
-                  <button onclick="openTaskModal(${t.id})" class="font-semibold text-xs text-slate-900 dark:text-white hover:text-blue-600 text-left">
+                  <button onclick="openDiscussionModal('task', ${t.id})" class="font-semibold text-xs text-slate-900 dark:text-white hover:text-blue-600 text-left">
                     ${t.title}
                   </button>
-                  <span class="px-1.5 py-0.5 rounded text-[10px] border ${badgeClass(t.priority_color)}">${t.priority_title || 'Normal'}</span>
+                  <div class="flex items-center gap-1 shrink-0">
+                    ${urg.badgeHtml}
+                    <span class="px-1.5 py-0.5 rounded text-[10px] border ${badgeClass(t.priority_color)}">${t.priority_title || 'Normal'}</span>
+                  </div>
                 </div>
                 <div>${formatTimeSlotBadge(t.start_time, t.end_time)}</div>
                 <div class="text-[11px] text-blue-600 dark:text-blue-400 font-medium">${t.project_title || ''}</div>
-                <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-700">
-                  <span>${userNames || 'Unassigned'}</span>
-                  <span>${formatDate(t.due_date)}</span>
+                <div class="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono pt-1 border-t border-slate-200/60 dark:border-slate-700">
+                  <span class="text-slate-500 dark:text-slate-400">Start: <strong class="text-slate-700 dark:text-slate-200">${formatDate(t.start_date)}</strong></span>
+                  <span class="${urg.dueTextCls}">End: <strong>${formatDate(t.due_date)}</strong></span>
+                </div>
+                <div class="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span class="truncate">${userNames || 'Unassigned'}</span>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    ${buildCompletionPercentSelect(t.id, Number(t.completion_percentage || (String(t.status_title || '').toLowerCase().includes('complete') ? 100 : 0)))}
+                    <button onclick="openTaskModal(${t.id})" class="text-[10px] text-blue-600 hover:underline font-semibold">Edit</button>
+                  </div>
                 </div>
               </div>
             `;
@@ -1422,6 +1488,52 @@ window.quickUpdateTaskStatus = async function(taskId, newStatusId) {
     showToast(err.message, 'error');
   }
 };
+
+window.quickUpdateTaskCompletion = async function(taskId, newPct) {
+  try {
+    const pct = Math.max(0, Math.min(100, Number(newPct) || 0));
+    const task = state.tasks.find(t => Number(t.id) === Number(taskId));
+    const payload = { completion_percentage: pct };
+
+    // Auto-sync status when 100% (Completed) or 10-90% from Planned (In Progress)
+    if (pct === 100) {
+      const compSt = state.meta.statuses.find(s => s.title.toLowerCase().includes('complete'));
+      if (compSt) payload.status_id = Number(compSt.id);
+    } else if (pct > 0 && task && String(task.status_title || '').toLowerCase().includes('plan')) {
+      const progSt = state.meta.statuses.find(s => s.title.toLowerCase().includes('progress'));
+      if (progSt) payload.status_id = Number(progSt.id);
+    }
+
+    await apiFetch(`/api/tasks/${taskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    showToast(`Task progress updated to ${pct}%`);
+    await loadAllData();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+};
+
+function buildCompletionPercentSelect(taskId, currentPct, onAfterJs = '') {
+  const val = Number(currentPct || 0);
+  const presets = [0, 10, 25, 50, 75, 90, 100];
+  if (!presets.includes(val)) presets.push(val);
+  presets.sort((a, b) => a - b);
+  const opts = presets.map(v => `<option value="${v}" ${v === val ? 'selected' : ''}>${v}%</option>`).join('');
+  const barColor = val === 100 ? 'bg-emerald-500' : (val >= 50 ? 'bg-blue-600' : 'bg-amber-500');
+  return `
+    <div class="flex items-center gap-1.5">
+      <select onchange="quickUpdateTaskCompletion(${taskId}, this.value)${onAfterJs}"
+        class="px-1.5 py-1 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-[11px] font-bold ${val === 100 ? 'text-emerald-600' : 'text-blue-700 dark:text-blue-300'}">
+        ${opts}
+      </select>
+      <div class="w-10 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden hidden sm:block">
+        <div class="h-full ${barColor}" style="width:${val}%"></div>
+      </div>
+    </div>
+  `;
+}
 
 // ============================================================================
 // TAB 4: MEETINGS, ATTENDANCE, MINUTES OF MEETING (MoM) & MONTHLY REPORT
@@ -2631,16 +2743,24 @@ window.deleteClient = async function(id) {
 // ============================================================================
 // TAB 7: WORKSPACES
 // ============================================================================
+let deleteWsTimer = null;
+let deleteWsVerifiedPassword = '';
+
 function renderWorkspacesGrid() {
   const grid = document.getElementById('workspaces-cards-grid');
+  const canDeleteWs = Boolean(state.user?.isStrictAdmin || (state.user?.permissions || []).includes('delete_workspaces'));
+
   grid.innerHTML = state.meta.workspaces.map(w => `
     <div class="p-5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between">
       <div>
         <div class="flex items-center justify-between mb-2">
           <span class="text-xs text-slate-400 font-mono">ID #${w.id}</span>
-          ${Number(w.is_primary) === 1
-            ? `<span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">Primary</span>`
-            : ''}
+          <div class="flex items-center gap-1.5">
+            ${Number(w.is_primary) === 1
+              ? `<span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">Primary</span>`
+              : ''}
+            ${canDeleteWs ? `<button type="button" onclick="openDeleteWorkspaceModal(${w.id})" title="Delete Workspace" class="px-2 py-0.5 rounded bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-[10px] font-semibold transition">Delete</button>` : ''}
+          </div>
         </div>
         <h4 class="text-base font-bold text-slate-900 dark:text-white mb-4">${w.title}</h4>
         <div class="grid grid-cols-3 gap-2 text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
@@ -2666,7 +2786,163 @@ function renderWorkspacesGrid() {
       </div>
     </div>
   `).join('');
+
+  // Render 30-Day Deletion Safety Hold panel if any workspaces are scheduled for deletion
+  const pendingBox = document.getElementById('workspaces-pending-deletion-box');
+  const pendingList = document.getElementById('workspaces-pending-deletion-list');
+  const pending = state.meta.pendingDeletionWorkspaces || [];
+  if (pendingBox && pendingList) {
+    if (pending.length === 0) {
+      pendingBox.classList.add('hidden');
+    } else {
+      pendingBox.classList.remove('hidden');
+      const nowMs = Date.now();
+      pendingList.innerHTML = pending.map(item => {
+        const purgeDt = new Date(item.purge_at);
+        const daysLeft = Math.max(0, Math.ceil((purgeDt.getTime() - nowMs) / (1000 * 60 * 60 * 24)));
+        const purgeStr = isNaN(purgeDt.getTime()) ? '—' : localDateStr(purgeDt);
+        return `
+          <div class="p-4 rounded-xl bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 flex flex-col justify-between gap-3 shadow-xs">
+            <div>
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <span class="font-mono text-[10px] text-slate-400">ID #${item.workspace_id}</span>
+                <span class="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold text-[10px]">
+                  ⏳ ${daysLeft} day(s) left
+                </span>
+              </div>
+              <div class="text-sm font-bold text-slate-900 dark:text-white">${item.title}</div>
+              <div class="text-[11px] text-slate-500 mt-1">
+                ${item.projects_count || 0} Projects • ${item.tasks_count || 0} Tasks • ${item.users_count || 0} Members
+              </div>
+              <div class="text-[10px] text-slate-400 mt-1">
+                Scheduled by ${item.requested_by_name || 'Admin'} • Permanent removal: <strong>${purgeStr}</strong>
+              </div>
+            </div>
+            <button type="button" onclick="restoreWorkspace(${item.workspace_id})"
+              class="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition shadow-xs">
+              ↩ Stop Deletion & Restore Workspace
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+  }
 }
+
+window.openDeleteWorkspaceModal = function(wsId) {
+  const ws = state.meta.workspaces.find(w => Number(w.id) === Number(wsId));
+  if (!ws) return;
+  if (deleteWsTimer) { clearInterval(deleteWsTimer); deleteWsTimer = null; }
+  deleteWsVerifiedPassword = '';
+
+  document.getElementById('del-ws-id').value = ws.id;
+  document.getElementById('del-ws-target-name').textContent = `Workspace: "${ws.title}" (#${ws.id}) — ${ws.projects_count || 0} projects, ${ws.tasks_count || 0} tasks`;
+  document.getElementById('del-ws-password').value = '';
+  document.getElementById('del-ws-pass-error').classList.add('hidden');
+  document.getElementById('del-ws-step-1').classList.remove('hidden');
+  document.getElementById('del-ws-step-2').classList.add('hidden');
+  document.getElementById('del-ws-step-3').classList.add('hidden');
+  document.getElementById('delete-workspace-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('del-ws-password')?.focus(), 50);
+};
+
+window.closeDeleteWorkspaceModal = function() {
+  if (deleteWsTimer) { clearInterval(deleteWsTimer); deleteWsTimer = null; }
+  deleteWsVerifiedPassword = '';
+  document.getElementById('delete-workspace-modal').classList.add('hidden');
+};
+
+window.verifyDeleteWorkspacePassword = async function() {
+  const pwdEl = document.getElementById('del-ws-password');
+  const errEl = document.getElementById('del-ws-pass-error');
+  const btn = document.getElementById('del-ws-verify-btn');
+  const password = pwdEl.value;
+  errEl.classList.add('hidden');
+
+  if (!password) {
+    errEl.textContent = 'Please enter your account password.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
+    await apiFetch('/api/auth/verify-password', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    });
+    deleteWsVerifiedPassword = password;
+
+    // Move to Step 2: 30-second cool-down timer
+    document.getElementById('del-ws-step-1').classList.add('hidden');
+    document.getElementById('del-ws-step-2').classList.remove('hidden');
+
+    let secondsLeft = 30;
+    const numEl = document.getElementById('del-ws-countdown-num');
+    const barEl = document.getElementById('del-ws-countdown-bar');
+    numEl.textContent = secondsLeft;
+    barEl.style.width = '100%';
+
+    deleteWsTimer = setInterval(() => {
+      secondsLeft--;
+      numEl.textContent = Math.max(0, secondsLeft);
+      barEl.style.width = `${Math.max(0, (secondsLeft / 30) * 100)}%`;
+      if (secondsLeft <= 0) {
+        clearInterval(deleteWsTimer);
+        deleteWsTimer = null;
+        // Move to Step 3: "Take a sigh of relief — are you sure?"
+        document.getElementById('del-ws-step-2').classList.add('hidden');
+        document.getElementById('del-ws-step-3').classList.remove('hidden');
+        showToast('Take a sigh of relief — please confirm if you want to hold this workspace for 30 days.');
+      }
+    }, 1000);
+  } catch (err) {
+    errEl.textContent = err.message || 'Incorrect password.';
+    errEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Verify Password →';
+  }
+};
+
+window.confirmScheduleDeleteWorkspace = async function() {
+  const wsId = Number(document.getElementById('del-ws-id').value);
+  const btn = document.getElementById('del-ws-confirm-btn');
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Scheduling 30-Day Hold...';
+    const res = await apiFetch(`/api/workspaces/${wsId}/schedule-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ password: deleteWsVerifiedPassword })
+    });
+    if (String(state.selectedWorkspace) === String(wsId)) {
+      state.selectedWorkspace = 'all';
+      localStorage.setItem('ceo_workspace', 'all');
+    }
+    closeDeleteWorkspaceModal();
+    showToast(res.message);
+    await loadAllData();
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Yes, Hold for 30 Days & Hide';
+  }
+};
+
+window.restoreWorkspace = async function(wsId) {
+  try {
+    const res = await apiFetch(`/api/workspaces/${wsId}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    showToast(res.message);
+    await loadAllData();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+};
 
 window.selectWorkspaceScope = async function(wsId) {
   state.selectedWorkspace = String(wsId);
@@ -3166,12 +3442,13 @@ window.openProjectDetailModal = async function(projectId) {
   const projTasks = state.tasks.filter(t => Number(t.project_id) === Number(p.id));
   const tbody = document.getElementById('detail-proj-tasks-tbody');
   if (projTasks.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-400">No tasks in this project yet. Use the quick form above to create and assign a task!</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-400">No tasks in this project yet. Use the quick form above to create and assign a task!</td></tr>`;
   } else {
     tbody.innerHTML = projTasks.map(t => {
       const statusOpts = state.meta.statuses.map(s =>
         `<option value="${s.id}" ${Number(s.id) === Number(t.status_id) ? 'selected' : ''}>${s.title}</option>`
       ).join('');
+      const pctVal = Number(t.completion_percentage || (String(t.status_title || '').toLowerCase().includes('complete') ? 100 : 0));
       return `
         <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
           <td class="py-2.5 px-3">
@@ -3187,6 +3464,9 @@ window.openProjectDetailModal = async function(projectId) {
               class="px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 text-[11px] font-medium">
               ${statusOpts}
             </select>
+          </td>
+          <td class="py-2.5 px-3">
+            ${buildCompletionPercentSelect(t.id, pctVal, `.then(() => openProjectDetailModal(${p.id}))`)}
           </td>
           <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] border ${badgeClass(t.priority_color)}">${t.priority_title || 'Normal'}</span></td>
           <td class="py-2.5 px-3 font-mono">${formatDate(t.due_date)}</td>
@@ -3785,7 +4065,38 @@ window.openDiscussionModal = async function(type, entityId) {
   statusSelect.onchange = async () => {
     await quickUpdateTaskStatus(entityId, statusSelect.value);
     await loadTaskDetailSections(entityId);
+    const updated = state.tasks.find(t => Number(t.id) === Number(entityId));
+    if (updated) syncDiscCompletionControl(updated);
   };
+
+  // Completion % quick switcher inside Task View modal
+  const syncDiscCompletionControl = (taskObj) => {
+    const pctSelect = document.getElementById('disc-completion-select');
+    const pctBar = document.getElementById('disc-completion-bar');
+    if (!pctSelect) return;
+    const curPct = Number(taskObj?.completion_percentage || (String(taskObj?.status_title || '').toLowerCase().includes('complete') ? 100 : 0));
+    const presets = [0, 10, 25, 50, 75, 90, 100];
+    if (!presets.includes(curPct)) presets.push(curPct);
+    presets.sort((a, b) => a - b);
+    pctSelect.innerHTML = presets.map(v => `<option value="${v}" ${v === curPct ? 'selected' : ''}>${v}%</option>`).join('');
+    if (pctBar) {
+      pctBar.style.width = `${curPct}%`;
+      pctBar.className = `h-full transition-all ${curPct === 100 ? 'bg-emerald-500' : (curPct >= 50 ? 'bg-blue-600' : 'bg-amber-500')}`;
+    }
+  };
+  syncDiscCompletionControl(entity);
+  const compSelEl = document.getElementById('disc-completion-select');
+  if (compSelEl) {
+    compSelEl.onchange = async () => {
+      await quickUpdateTaskCompletion(entityId, compSelEl.value);
+      const updated = state.tasks.find(t => Number(t.id) === Number(entityId));
+      if (updated) {
+        syncDiscCompletionControl(updated);
+        statusSelect.value = String(updated.status_id);
+      }
+      await loadTaskDetailSections(entityId);
+    };
+  }
 
   // Populate Inline Subtask Form Dropdowns
   document.getElementById('subtask-title').value = '';
