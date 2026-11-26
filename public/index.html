@@ -1431,14 +1431,14 @@
                 </div>
                 <button onclick="openTaskModal()" class="text-xs text-blue-600 font-semibold hover:underline">+ New Recurring Task</button>
               </div>
-              <div id="cron-recurring-list" class="space-y-2 text-xs max-h-80 overflow-y-auto"></div>
+              <div id="cron-recurring-list" class="space-y-2.5 text-xs max-h-[500px] overflow-y-auto pr-1"></div>
             </div>
 
             <!-- Live Cron & Email Execution Log -->
             <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
               <h4 class="text-sm font-bold text-slate-900 dark:text-white mb-1">Cron & Email Dispatch Log</h4>
               <p class="text-xs text-slate-500 mb-3">Real-time log of background cron runs and email notifications</p>
-              <div id="cron-logs-list" class="space-y-2 text-xs max-h-80 overflow-y-auto font-mono"></div>
+              <div id="cron-logs-list" class="space-y-2 text-xs max-h-[500px] overflow-y-auto font-mono"></div>
             </div>
           </div>
         </section>
@@ -2544,24 +2544,29 @@
   <div id="workspace-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
     <div class="w-full max-w-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden flex flex-col">
       <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-        <h3 class="text-base font-bold text-slate-900 dark:text-white">Create Workspace</h3>
+        <h3 id="workspace-modal-title" class="text-base font-bold text-slate-900 dark:text-white">Create Workspace</h3>
         <button onclick="closeWorkspaceModal()" class="text-slate-400 hover:text-slate-700">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
       <form id="workspace-form" class="p-6 space-y-4 text-xs">
+        <input type="hidden" id="ws-id" />
         <div>
           <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Workspace Title *</label>
           <input type="text" id="ws-title" required placeholder="e.g. Docman Sales & Marketing"
             class="w-full px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600" />
         </div>
+        <label class="flex items-center gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer">
+          <input type="checkbox" id="ws-is-primary" class="rounded text-blue-600" />
+          <span class="font-semibold text-slate-700 dark:text-slate-300">Set as Primary Workspace</span>
+        </label>
         <div>
           <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1.5">Include Team Members</label>
           <div id="ws-users-checkboxes" class="grid grid-cols-2 gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 max-h-40 overflow-y-auto"></div>
         </div>
         <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-end gap-2">
           <button type="button" onclick="closeWorkspaceModal()" class="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700">Cancel</button>
-          <button type="submit" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">Create Workspace</button>
+          <button type="submit" id="workspace-modal-submit" class="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">Create Workspace</button>
         </div>
       </form>
     </div>

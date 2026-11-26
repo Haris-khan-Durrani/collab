@@ -1082,7 +1082,8 @@ app.get('/api/meta', authMiddleware, async (req, res) => {
         (SELECT COUNT(*) FROM projects p WHERE p.workspace_id = w.id) AS projects_count,
         (SELECT COUNT(*) FROM tasks t WHERE t.workspace_id = w.id) AS tasks_count,
         (SELECT COUNT(*) FROM user_workspace uw WHERE uw.workspace_id = w.id) AS users_count,
-        (SELECT COUNT(*) FROM client_workspace cw WHERE cw.workspace_id = w.id) AS clients_count
+        (SELECT COUNT(*) FROM client_workspace cw WHERE cw.workspace_id = w.id) AS clients_count,
+        (SELECT GROUP_CONCAT(uw.user_id) FROM user_workspace uw WHERE uw.workspace_id = w.id) AS member_ids
       FROM workspaces w
       WHERE ${heldNotInSql}
     `;
@@ -3916,26 +3917,107 @@ app.delete('/api/meetings/:id', authMiddleware, async (req, res) => {
 // 7. CRON & INSTANT NOTIFICATION ENDPOINTS
 // ==========================================
 app.get('/api/cron/status', authMiddleware, async (req, res) => {
-  const [recList] = await pool.query(`
-    SELECT rt.*, t.title AS task_title, p.title AS project_title
+  const todayStr = getLocalDateStr();
+  const [recListRaw] = await pool.query(`
+    SELECT rt.*, t.title AS task_title, t.due_date, p.title AS project_title,
+           (SELECT GROUP_CONCAT(CONCAT(u.first_name, ' ', u.last_name) SEPARATOR ', ')
+            FROM task_user tu JOIN users u ON u.id = tu.user_id WHERE tu.task_id = t.id) AS assignees,
+           (SELECT tte.start_time FROM task_time_entries tte WHERE tte.task_id = t.id ORDER BY tte.id DESC LIMIT 1) AS start_time,
+           (SELECT tte.end_time FROM task_time_entries tte WHERE tte.task_id = t.id ORDER BY tte.id DESC LIMIT 1) AS end_time
     FROM recurring_tasks rt
     JOIN tasks t ON t.id = rt.task_id
     LEFT JOIN projects p ON p.id = t.project_id
-    ORDER BY rt.id DESC
+    ORDER BY rt.is_active DESC, rt.id DESC
   `);
+
+  const recList = recListRaw.map(rt => {
+    const lastDate = rt.last_created_at ? String(rt.last_created_at).substring(0, 10) : null;
+    const startsFrom = rt.starts_from ? String(rt.starts_from).substring(0, 10) : todayStr;
+    let nextRunDate = null;
+    if (Number(rt.is_active) === 1) {
+      if (!lastDate && startsFrom >= todayStr) {
+        nextRunDate = startsFrom;
+      } else if (!lastDate && startsFrom < todayStr) {
+        nextRunDate = todayStr;
+      } else {
+        nextRunDate = computeNextRecurringSlotDate({
+          frequency: rt.frequency,
+          last_generated_date: lastDate,
+          starts_from: startsFrom
+        });
+      }
+    }
+    return {
+      ...rt,
+      next_run_date: nextRunDate,
+      time_slot: (rt.start_time && rt.end_time) ? `${formatTime12h(rt.start_time)} – ${formatTime12h(rt.end_time)}` : null
+    };
+  });
+
   const [remList] = await pool.query(`
-    SELECT r.*, t.title AS task_title
+    SELECT r.*, t.title AS task_title, p.title AS project_title,
+           (SELECT GROUP_CONCAT(CONCAT(u.first_name, ' ', u.last_name) SEPARATOR ', ')
+            FROM task_user tu JOIN users u ON u.id = tu.user_id WHERE tu.task_id = t.id) AS assignees,
+           (SELECT COUNT(*) FROM recurring_tasks rt WHERE rt.task_id = t.id AND rt.is_active = 1) AS has_recurring
     FROM reminders r
     JOIN tasks t ON t.id = r.remindable_id
+    LEFT JOIN projects p ON p.id = t.project_id
     WHERE r.remindable_type LIKE '%Task'
     ORDER BY r.id DESC
   `);
+
   res.json({
     error: false,
     cronState,
+    serverToday: todayStr,
     recurringTasks: recList,
     reminders: remList
   });
+});
+
+// Toggle Pause / Resume on a Recurring Task Creator
+app.put('/api/cron/recurring-tasks/:id/toggle', authMiddleware, async (req, res) => {
+  try {
+    const rtId = Number(req.params.id);
+    const [rows] = await pool.query('SELECT id, is_active FROM recurring_tasks WHERE id = ?', [rtId]);
+    if (!rows.length) return res.status(404).json({ error: true, message: 'Recurring rule not found' });
+    const nextState = Number(rows[0].is_active) === 1 ? 0 : 1;
+    await pool.query('UPDATE recurring_tasks SET is_active = ?, updated_at = NOW() WHERE id = ?', [nextState, rtId]);
+    addCronLog('RECURRING', `${nextState ? 'Resumed' : 'Paused'} recurring rule #${rtId}`);
+    res.json({ error: false, is_active: nextState, message: nextState ? 'Auto-recurring creator resumed' : 'Auto-recurring creator paused' });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// 1-Click Enable Auto-Recurring Task Creator on an existing task (e.g. from a Reminder-only task)
+app.post('/api/cron/recurring-tasks/quick-enable', authMiddleware, async (req, res) => {
+  try {
+    const { task_id, frequency = 'daily' } = req.body;
+    const tid = Number(task_id);
+    if (!tid) return res.status(400).json({ error: true, message: 'task_id is required' });
+    const allowedFreq = ['daily', 'weekly', 'monthly', 'yearly'].includes(String(frequency).toLowerCase())
+      ? String(frequency).toLowerCase()
+      : 'daily';
+    const [existing] = await pool.query('SELECT id FROM recurring_tasks WHERE task_id = ? LIMIT 1', [tid]);
+    const todayStr = getLocalDateStr();
+    if (existing.length) {
+      await pool.query(
+        'UPDATE recurring_tasks SET frequency = ?, is_active = 1, updated_at = NOW() WHERE id = ?',
+        [allowedFreq, existing[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO recurring_tasks (task_id, frequency, starts_from, completed_occurrences, last_created_at, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, 1, NOW(), 1, NOW(), NOW())`,
+        [tid, allowedFreq, todayStr]
+      );
+    }
+    addCronLog('RECURRING', `Enabled ${allowedFreq.toUpperCase()} auto-recurring task creator for Task #${tid}`);
+    res.json({ error: false, message: `Auto-Create (${allowedFreq.toUpperCase()}) enabled! Next occurrence will auto-generate automatically.` });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
 });
 
 app.post('/api/cron/run-now', authMiddleware, async (req, res) => {
@@ -4226,6 +4308,56 @@ app.post('/api/workspaces', authMiddleware, async (req, res) => {
 
     await conn.commit();
     res.json({ error: false, message: 'Workspace created successfully', id: wsId });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ error: true, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// Edit Workspace (title, primary status, team members)
+app.put('/api/workspaces/:id', authMiddleware, async (req, res) => {
+  const canEdit = req.user.isStrictAdmin || req.user.permissions.includes('edit_workspaces');
+  if (!canEdit) {
+    return res.status(403).json({ error: true, message: 'You do not have permission to edit workspaces.' });
+  }
+
+  const wsId = Number(req.params.id);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const { title, is_primary = 0, user_ids = [] } = req.body;
+    if (!title || !title.trim()) {
+      await conn.rollback();
+      return res.status(400).json({ error: true, message: 'Workspace title is required' });
+    }
+
+    const [existing] = await conn.query('SELECT id FROM workspaces WHERE id = ? LIMIT 1', [wsId]);
+    if (!existing.length) {
+      await conn.rollback();
+      return res.status(404).json({ error: true, message: 'Workspace not found' });
+    }
+
+    if (is_primary) {
+      await conn.query('UPDATE workspaces SET is_primary = 0 WHERE id != ?', [wsId]);
+    }
+
+    await conn.query(
+      'UPDATE workspaces SET title = ?, is_primary = ?, updated_at = NOW() WHERE id = ?',
+      [title.trim(), is_primary ? 1 : 0, wsId]
+    );
+
+    if (Array.isArray(user_ids)) {
+      await conn.query('DELETE FROM user_workspace WHERE workspace_id = ?', [wsId]);
+      const finalUsers = [...new Set(user_ids.map(Number).filter(Boolean))];
+      if (finalUsers.length > 0) {
+        await conn.query('INSERT INTO user_workspace (workspace_id, user_id) VALUES ?', [finalUsers.map(uid => [wsId, uid])]);
+      }
+    }
+
+    await conn.commit();
+    res.json({ error: false, message: 'Workspace updated successfully', id: wsId });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ error: true, message: err.message });

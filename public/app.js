@@ -2,6 +2,15 @@
 // TASKIFY CEO CENTRAL DASHBOARD — CLEAN, ONE-PANEL EXECUTIVE SPA ENGINE
 // ============================================================================
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const state = {
   token: localStorage.getItem('ceo_token') || null,
   user: null,
@@ -2748,6 +2757,7 @@ let deleteWsVerifiedPassword = '';
 
 function renderWorkspacesGrid() {
   const grid = document.getElementById('workspaces-cards-grid');
+  const canEditWs = Boolean(state.user?.isStrictAdmin || (state.user?.permissions || []).includes('edit_workspaces'));
   const canDeleteWs = Boolean(state.user?.isStrictAdmin || (state.user?.permissions || []).includes('delete_workspaces'));
 
   grid.innerHTML = state.meta.workspaces.map(w => `
@@ -2759,6 +2769,7 @@ function renderWorkspacesGrid() {
             ${Number(w.is_primary) === 1
               ? `<span class="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200">Primary</span>`
               : ''}
+            ${canEditWs ? `<button type="button" onclick="openWorkspaceModal(${w.id})" title="Edit Workspace" class="px-2 py-0.5 rounded bg-slate-50 hover:bg-slate-100 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 text-[10px] font-semibold transition">Edit</button>` : ''}
             ${canDeleteWs ? `<button type="button" onclick="openDeleteWorkspaceModal(${w.id})" title="Delete Workspace" class="px-2 py-0.5 rounded bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-[10px] font-semibold transition">Delete</button>` : ''}
           </div>
         </div>
@@ -2970,34 +2981,90 @@ function renderCronTab() {
   const remItems = cd.reminders || [];
 
   if (recItems.length === 0 && remItems.length === 0) {
-    recListEl.innerHTML = `<p class="text-slate-400 py-4 text-center">No recurring tasks or automated reminders configured yet. Open "+ Time-Slot Task" and check "Auto-Create as Recurring Task" or "Enable Automated Email Reminder".</p>`;
+    recListEl.innerHTML = `<p class="text-slate-400 py-4 text-center">No recurring tasks or automated reminders configured yet. Open "+ Task" and check "Repeat Task Automatically" or "Send Automated Email Reminder".</p>`;
   } else {
-    const recHtml = recItems.map(rt => `
-      <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+    const activeRecCount = recItems.filter(r => Number(r.is_active) === 1).length;
+    const recSectionHeader = `
+      <div class="flex items-center justify-between pt-1 pb-1.5 border-b border-slate-200 dark:border-slate-700">
         <div>
-          <span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-[10px]">🔁 RECURRING (${rt.frequency.toUpperCase()})</span>
-          <div class="font-bold text-slate-900 dark:text-white mt-1">${rt.task_title}</div>
-          <div class="text-[11px] text-slate-500">Project: ${rt.project_title || '—'} • Occurrences generated: ${rt.completed_occurrences || 1}</div>
-        </div>
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button onclick="spawnRecurringTaskNow(${rt.id})" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold">⚡ Create Next Now</button>
-          <button onclick="openTaskModal(${rt.task_id})" class="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs">Edit</button>
+          <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">🔁 Auto-Recurring Task Creators (${activeRecCount} active)</span>
+          <div class="text-[10px] text-slate-500">Automatically generates a fresh task copy, preserves time slot & assignees, and emails the team</div>
         </div>
       </div>
-    `).join('');
+    `;
 
-    const remHtml = remItems.map(rm => `
-      <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+    const recHtml = recItems.length === 0
+      ? `<div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 text-[11px] text-slate-500 text-center">No Auto-Recurring Task Creators enabled yet. Click <strong>+ Enable Auto-Create</strong> on a reminder below or check <em>Repeat Task Automatically</em> when editing any task.</div>`
+      : recItems.map(rt => {
+          const isActive = Number(rt.is_active) === 1;
+          const maxOcc = rt.number_of_occurrences ? ` / ${rt.number_of_occurrences}` : ' (∞)';
+          const lastCreated = rt.last_created_at ? String(rt.last_created_at).substring(0, 16).replace('T', ' ') : 'Not yet generated';
+          return `
+            <div class="p-3 rounded-lg ${isActive ? 'bg-emerald-50/40 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/60' : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 opacity-75'} border flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700 font-semibold text-[10px]">🔁 RECURRING (${(rt.frequency || 'daily').toUpperCase()})</span>
+                  ${isActive
+                    ? `<span class="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-semibold text-[10px]">📅 Next Auto-Create: ${rt.next_run_date || 'Today'}</span>`
+                    : `<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold text-[10px]">⏸ PAUSED</span>`
+                  }
+                  ${rt.time_slot ? `<span class="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px]">🕒 ${rt.time_slot}</span>` : ''}
+                </div>
+                <div class="font-bold text-slate-900 dark:text-white mt-1.5">${escapeHtml(rt.task_title)}</div>
+                <div class="text-[11px] text-slate-500 mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                  <span>Project: <strong>${escapeHtml(rt.project_title || '—')}</strong></span>
+                  <span>Team: <strong>${escapeHtml(rt.assignees || 'Unassigned')}</strong></span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-1 flex flex-wrap gap-x-3">
+                  <span>Generated: <strong class="text-slate-600 dark:text-slate-300">${rt.completed_occurrences || 1}${maxOcc}</strong></span>
+                  <span>Last created: <strong class="text-slate-600 dark:text-slate-300">${lastCreated}</strong></span>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <button onclick="spawnRecurringTaskNow(${rt.id})" title="Test & immediately generate the next scheduled occurrence" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold">⚡ Create Next Now</button>
+                <button onclick="toggleRecurringRule(${rt.id})" class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-medium">${isActive ? 'Pause' : 'Resume'}</button>
+                <button onclick="openTaskModal(${rt.task_id})" class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px]">Edit</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+    const remSectionHeader = remItems.length > 0 ? `
+      <div class="flex items-center justify-between pt-3 pb-1.5 border-b border-slate-200 dark:border-slate-700">
         <div>
-          <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-semibold text-[10px]">⏰ REMINDER (${rm.frequency_type.toUpperCase()} @ ${formatTime12h(rm.time_of_day)})</span>
-          <div class="font-bold text-slate-900 dark:text-white mt-1">${rm.task_title}</div>
-          <div class="text-[11px] text-slate-500">Last sent: ${rm.last_sent_at || 'Pending next trigger'}</div>
+          <span class="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">⏰ Automated Email Reminders (${remItems.length})</span>
+          <div class="text-[10px] text-slate-500">Sends email reminders only — does not create a new task unless Auto-Create is enabled</div>
         </div>
-        <button onclick="openTaskModal(${rm.remindable_id})" class="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs">Edit</button>
       </div>
-    `).join('');
+    ` : '';
 
-    recListEl.innerHTML = recHtml + remHtml;
+    const remHtml = remItems.map(rm => {
+      const hasRec = Number(rm.has_recurring || 0) > 0;
+      const freqForQuick = ['daily', 'weekly', 'monthly', 'yearly'].includes((rm.frequency_type || '').toLowerCase())
+        ? rm.frequency_type.toLowerCase()
+        : 'daily';
+      return `
+        <div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold text-[10px]">⏰ REMINDER (${(rm.frequency_type || 'daily').toUpperCase()} @ ${formatTime12h(rm.time_of_day)})</span>
+              ${hasRec
+                ? `<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">✓ Auto-Create Linked</span>`
+                : `<span class="px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px]">Email reminder only</span>`
+              }
+            </div>
+            <div class="font-bold text-slate-900 dark:text-white mt-1">${escapeHtml(rm.task_title)}</div>
+            <div class="text-[11px] text-slate-500">Last sent: ${rm.last_sent_at || 'Pending next trigger'}${rm.assignees ? ` • Team: ${escapeHtml(rm.assignees)}` : ''}</div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            ${!hasRec ? `<button onclick="quickEnableRecurring(${rm.remindable_id}, '${freqForQuick}')" class="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold">+ Enable Auto-Create (${freqForQuick})</button>` : ''}
+            <button onclick="openTaskModal(${rm.remindable_id})" class="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-600 text-xs">Edit</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    recListEl.innerHTML = recSectionHeader + recHtml + remSectionHeader + remHtml;
   }
 
   const logsEl = document.getElementById('cron-logs-list');
@@ -3028,6 +3095,29 @@ window.triggerManualCron = async function() {
 window.spawnRecurringTaskNow = async function(recurringId) {
   try {
     const res = await apiFetch(`/api/cron/recurring-tasks/${recurringId}/spawn-now`, { method: 'POST', body: JSON.stringify({}) });
+    showToast(res.message);
+    await loadAllData();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+};
+
+window.toggleRecurringRule = async function(recurringId) {
+  try {
+    const res = await apiFetch(`/api/cron/recurring-tasks/${recurringId}/toggle`, { method: 'PUT', body: JSON.stringify({}) });
+    showToast(res.message);
+    await loadAllData();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+};
+
+window.quickEnableRecurring = async function(taskId, frequency = 'daily') {
+  try {
+    const res = await apiFetch('/api/cron/recurring-tasks/quick-enable', {
+      method: 'POST',
+      body: JSON.stringify({ task_id: taskId, frequency })
+    });
     showToast(res.message);
     await loadAllData();
   } catch (err) {
@@ -3863,15 +3953,28 @@ window.closeUserModal = function() {
   document.getElementById('user-modal').classList.add('hidden');
 };
 
-window.openWorkspaceModal = function() {
+window.openWorkspaceModal = function(workspaceId = null) {
+  const ws = workspaceId ? state.meta.workspaces.find(w => Number(w.id) === Number(workspaceId)) : null;
   document.getElementById('workspace-modal').classList.remove('hidden');
-  document.getElementById('ws-title').value = '';
-  document.getElementById('ws-users-checkboxes').innerHTML = state.meta.users.map(u => `
-    <label class="flex items-center gap-2 p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-      <input type="checkbox" name="ws_user_ids" value="${u.id}" checked class="rounded text-blue-600" />
-      <span class="truncate">${u.first_name} ${u.last_name}</span>
-    </label>
-  `).join('');
+  document.getElementById('ws-id').value = ws ? ws.id : '';
+  document.getElementById('workspace-modal-title').textContent = ws ? `Edit Workspace (#${ws.id})` : 'Create Workspace';
+  document.getElementById('workspace-modal-submit').textContent = ws ? 'Save Changes' : 'Create Workspace';
+  document.getElementById('ws-title').value = ws ? ws.title : '';
+  document.getElementById('ws-is-primary').checked = ws ? Number(ws.is_primary) === 1 : false;
+
+  const existingMembers = ws && ws.member_ids
+    ? String(ws.member_ids).split(',').map(Number).filter(Boolean)
+    : null;
+
+  document.getElementById('ws-users-checkboxes').innerHTML = state.meta.users.map(u => {
+    const isChecked = existingMembers ? existingMembers.includes(Number(u.id)) : true;
+    return `
+      <label class="flex items-center gap-2 p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+        <input type="checkbox" name="ws_user_ids" value="${u.id}" ${isChecked ? 'checked' : ''} class="rounded text-blue-600" />
+        <span class="truncate">${u.first_name} ${u.last_name}</span>
+      </label>
+    `;
+  }).join('');
 };
 
 window.closeWorkspaceModal = function() {
@@ -4655,14 +4758,21 @@ function bindEvents() {
     }
   });
 
-  // Workspace Form
+  // Workspace Form (Create or Edit)
   document.getElementById('workspace-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const wsId = document.getElementById('ws-id').value;
     const user_ids = Array.from(document.querySelectorAll('input[name="ws_user_ids"]:checked')).map(cb => Number(cb.value));
     const title = document.getElementById('ws-title').value;
+    const is_primary = document.getElementById('ws-is-primary').checked ? 1 : 0;
     try {
-      await apiFetch('/api/workspaces', { method: 'POST', body: JSON.stringify({ title, user_ids }) });
-      showToast('Workspace created');
+      if (wsId) {
+        await apiFetch(`/api/workspaces/${wsId}`, { method: 'PUT', body: JSON.stringify({ title, is_primary, user_ids }) });
+        showToast('Workspace updated');
+      } else {
+        await apiFetch('/api/workspaces', { method: 'POST', body: JSON.stringify({ title, is_primary, user_ids }) });
+        showToast('Workspace created');
+      }
       closeWorkspaceModal();
       await loadAllData();
     } catch (err) {
