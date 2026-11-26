@@ -2063,6 +2063,8 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
       params.push(req.user.id, req.user.id);
     }
 
+    const todayStr = getLocalDateStr();
+    const queryParams = [todayStr, todayStr, ...params];
     const [projects] = await pool.query(`
       SELECT
         p.*,
@@ -2072,7 +2074,8 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
         CONCAT(creator.first_name, ' ', creator.last_name) AS creator_name,
         (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) AS tasks_count,
         (SELECT COUNT(*) FROM tasks t LEFT JOIN statuses ts ON ts.id = t.status_id WHERE t.project_id = p.id AND (LOWER(ts.title) LIKE '%complete%' OR t.completion_percentage = 100)) AS completed_tasks_count,
-        (SELECT COUNT(*) FROM tasks t LEFT JOIN statuses ts ON ts.id = t.status_id WHERE t.project_id = p.id AND t.due_date IS NOT NULL AND t.due_date < CURDATE() AND (LOWER(ts.title) NOT LIKE '%complete%' OR ts.id IS NULL) AND COALESCE(t.completion_percentage, 0) < 100) AS overdue_tasks_count,
+        (SELECT COUNT(*) FROM tasks t LEFT JOIN statuses ts ON ts.id = t.status_id WHERE t.project_id = p.id AND t.due_date IS NOT NULL AND DATE(t.due_date) < ? AND (LOWER(COALESCE(ts.title, '')) NOT LIKE '%complete%') AND COALESCE(t.completion_percentage, 0) < 100) AS overdue_tasks_count,
+        (SELECT COUNT(*) FROM tasks t LEFT JOIN statuses ts ON ts.id = t.status_id WHERE t.project_id = p.id AND t.due_date IS NOT NULL AND DATE(t.due_date) = ? AND (LOWER(COALESCE(ts.title, '')) NOT LIKE '%complete%') AND COALESCE(t.completion_percentage, 0) < 100) AS due_today_tasks_count,
         (SELECT COUNT(*) FROM comments c WHERE c.commentable_id = p.id AND c.commentable_type LIKE '%Project' AND c.deleted_at IS NULL) AS comments_count
       FROM projects p
       LEFT JOIN workspaces w ON w.id = p.workspace_id
@@ -2081,7 +2084,7 @@ app.get('/api/projects', authMiddleware, async (req, res) => {
       LEFT JOIN users creator ON creator.id = p.created_by
       ${where}
       ORDER BY p.is_favorite DESC, p.id DESC
-    `, params);
+    `, queryParams);
 
     if (projects.length > 0) {
       const pIds = projects.map(p => p.id);
@@ -2596,7 +2599,7 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
         CONCAT(creator.first_name, ' ', creator.last_name) AS creator_name,
         (SELECT tte.start_time FROM task_time_entries tte WHERE tte.task_id = t.id ORDER BY tte.id DESC LIMIT 1) AS start_time,
         (SELECT tte.end_time FROM task_time_entries tte WHERE tte.task_id = t.id ORDER BY tte.id DESC LIMIT 1) AS end_time,
-        (SELECT rt.is_active FROM recurring_tasks rt WHERE rt.task_id = t.id ORDER BY rt.id DESC LIMIT 1) AS is_recurring,
+        (SELECT COUNT(*) > 0 FROM recurring_tasks rt WHERE rt.task_id = t.id) AS is_recurring,
         (SELECT rt.frequency FROM recurring_tasks rt WHERE rt.task_id = t.id ORDER BY rt.id DESC LIMIT 1) AS recurring_frequency,
         (SELECT rt.number_of_occurrences FROM recurring_tasks rt WHERE rt.task_id = t.id ORDER BY rt.id DESC LIMIT 1) AS recurring_occurrences,
         (SELECT rem.is_active FROM reminders rem WHERE rem.remindable_id = t.id AND rem.remindable_type LIKE '%Task' ORDER BY rem.id DESC LIMIT 1) AS has_reminder,
@@ -2997,15 +3000,26 @@ app.put('/api/tasks/:id', authMiddleware, async (req, res) => {
       }
     }
 
-    // Update Recurring Task if provided
+    // Update Recurring Task if provided (preserve history if updating existing rule)
     if (is_recurring !== undefined) {
-      await conn.query('DELETE FROM recurring_tasks WHERE task_id = ?', [taskId]);
       if (is_recurring) {
-        await conn.query(`
-          INSERT INTO recurring_tasks
-            (task_id, frequency, starts_from, number_of_occurrences, completed_occurrences, is_active, last_created_at, created_at, updated_at)
-          VALUES (?, ?, CURDATE(), ?, 1, 1, NOW(), NOW(), NOW())
-        `, [taskId, recurring_frequency || 'daily', recurring_occurrences ? Number(recurring_occurrences) : null]);
+        const [exRec] = await conn.query('SELECT id FROM recurring_tasks WHERE task_id = ? ORDER BY id DESC LIMIT 1', [taskId]);
+        const maxOcc = (recurring_occurrences && Number(recurring_occurrences) > 0) ? Number(recurring_occurrences) : null;
+        if (exRec.length) {
+          await conn.query(
+            'UPDATE recurring_tasks SET frequency = ?, number_of_occurrences = ?, is_active = 1, updated_at = NOW() WHERE id = ?',
+            [recurring_frequency || 'daily', maxOcc, exRec[0].id]
+          );
+        } else {
+          const anchorDate = start_date || getLocalDateStr();
+          await conn.query(`
+            INSERT INTO recurring_tasks
+              (task_id, frequency, starts_from, number_of_occurrences, completed_occurrences, is_active, last_created_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 1, 1, ?, NOW(), NOW())
+          `, [taskId, recurring_frequency || 'daily', anchorDate, maxOcc, `${anchorDate} ${getLocalDateTimeStr().substring(11)}`]);
+        }
+      } else {
+        await conn.query('DELETE FROM recurring_tasks WHERE task_id = ?', [taskId]);
       }
     }
 
@@ -3979,12 +3993,25 @@ app.get('/api/cron/status', authMiddleware, async (req, res) => {
 app.put('/api/cron/recurring-tasks/:id/toggle', authMiddleware, async (req, res) => {
   try {
     const rtId = Number(req.params.id);
-    const [rows] = await pool.query('SELECT id, is_active FROM recurring_tasks WHERE id = ?', [rtId]);
+    const [rows] = await pool.query('SELECT id, is_active, number_of_occurrences, completed_occurrences FROM recurring_tasks WHERE id = ?', [rtId]);
     if (!rows.length) return res.status(404).json({ error: true, message: 'Recurring rule not found' });
-    const nextState = Number(rows[0].is_active) === 1 ? 0 : 1;
-    await pool.query('UPDATE recurring_tasks SET is_active = ?, updated_at = NOW() WHERE id = ?', [nextState, rtId]);
-    addCronLog('RECURRING', `${nextState ? 'Resumed' : 'Paused'} recurring rule #${rtId}`);
-    res.json({ error: false, is_active: nextState, message: nextState ? 'Auto-recurring creator resumed' : 'Auto-recurring creator paused' });
+    const row = rows[0];
+    const nextState = Number(row.is_active) === 1 ? 0 : 1;
+    // If resuming a rule that had reached its max occurrence cap (e.g. 1/1), lift the cap to unlimited so it stays active
+    const shouldClearCap = nextState === 1 && row.number_of_occurrences && Number(row.completed_occurrences || 0) >= Number(row.number_of_occurrences);
+    if (shouldClearCap) {
+      await pool.query('UPDATE recurring_tasks SET is_active = 1, number_of_occurrences = NULL, updated_at = NOW() WHERE id = ?', [rtId]);
+    } else {
+      await pool.query('UPDATE recurring_tasks SET is_active = ?, updated_at = NOW() WHERE id = ?', [nextState, rtId]);
+    }
+    addCronLog('RECURRING', `${nextState ? 'Resumed' : 'Paused'} recurring rule #${rtId}${shouldClearCap ? ' (switched to Unlimited)' : ''}`);
+    res.json({
+      error: false,
+      is_active: nextState,
+      message: nextState
+        ? (shouldClearCap ? 'Auto-recurring creator resumed (set to Unlimited occurrences)' : 'Auto-recurring creator resumed')
+        : 'Auto-recurring creator paused'
+    });
   } catch (err) {
     res.status(500).json({ error: true, message: err.message });
   }
@@ -4003,13 +4030,13 @@ app.post('/api/cron/recurring-tasks/quick-enable', authMiddleware, async (req, r
     const todayStr = getLocalDateStr();
     if (existing.length) {
       await pool.query(
-        'UPDATE recurring_tasks SET frequency = ?, is_active = 1, updated_at = NOW() WHERE id = ?',
+        'UPDATE recurring_tasks SET frequency = ?, is_active = 1, number_of_occurrences = NULL, updated_at = NOW() WHERE id = ?',
         [allowedFreq, existing[0].id]
       );
     } else {
       await pool.query(
-        `INSERT INTO recurring_tasks (task_id, frequency, starts_from, completed_occurrences, last_created_at, is_active, created_at, updated_at)
-         VALUES (?, ?, ?, 1, NOW(), 1, NOW(), NOW())`,
+        `INSERT INTO recurring_tasks (task_id, frequency, starts_from, number_of_occurrences, completed_occurrences, last_created_at, is_active, created_at, updated_at)
+         VALUES (?, ?, ?, NULL, 1, NOW(), 1, NOW(), NOW())`,
         [tid, allowedFreq, todayStr]
       );
     }

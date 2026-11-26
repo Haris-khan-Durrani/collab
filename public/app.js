@@ -1089,6 +1089,53 @@ function getCardUrgencyStyle(dueDateVal, statusTitle, completionPct = 0) {
   };
 }
 
+function getProjectUrgencyStyle(p, pct = 0) {
+  const overdueTasks = Number(p.overdue_tasks_count || 0);
+  const dueTodayTasks = Number(p.due_today_tasks_count || 0);
+  const baseUrg = getCardUrgencyStyle(p.end_date, p.status_title, pct);
+
+  if (overdueTasks > 0) {
+    const overdueBadge = `<span class="px-1.5 py-0.5 rounded bg-red-700 text-white text-[9px] font-bold tracking-wide uppercase">⚠ ${overdueTasks} Overdue ${overdueTasks === 1 ? 'Task' : 'Tasks'}</span>`;
+    const dueTodayBadge = dueTodayTasks > 0
+      ? `<span class="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 text-[9px] font-bold tracking-wide uppercase">${dueTodayTasks} Due Today</span>`
+      : '';
+    return {
+      cardCls: 'bg-red-100/90 dark:bg-red-950/70 border-red-600 dark:border-red-600 border-l-4 border-l-red-700',
+      rowCls: 'bg-red-50/80 dark:bg-red-950/30 hover:bg-red-100/70 dark:hover:bg-red-950/50',
+      badgeHtml: overdueBadge + (dueTodayBadge ? ' ' + dueTodayBadge : ''),
+      dueTextCls: 'text-red-800 dark:text-red-300 font-bold'
+    };
+  }
+
+  if (baseUrg.badgeHtml && baseUrg.badgeHtml.includes('Overdue')) {
+    return {
+      ...baseUrg,
+      rowCls: 'bg-red-50/80 dark:bg-red-950/30 hover:bg-red-100/70 dark:hover:bg-red-950/50'
+    };
+  }
+
+  if (dueTodayTasks > 0) {
+    return {
+      cardCls: 'bg-red-50/90 dark:bg-red-950/30 border-red-300 dark:border-red-800 border-l-4 border-l-red-400',
+      rowCls: 'bg-red-50/40 dark:bg-red-950/20 hover:bg-red-50/80 dark:hover:bg-red-950/30',
+      badgeHtml: `<span class="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700 text-[9px] font-bold tracking-wide uppercase">${dueTodayTasks} Due Today</span>`,
+      dueTextCls: 'text-red-600 dark:text-red-400 font-bold'
+    };
+  }
+
+  if (baseUrg.badgeHtml && baseUrg.badgeHtml.includes('Due Today')) {
+    return {
+      ...baseUrg,
+      rowCls: 'bg-red-50/40 dark:bg-red-950/20 hover:bg-red-50/80 dark:hover:bg-red-950/30'
+    };
+  }
+
+  return {
+    ...baseUrg,
+    rowCls: 'hover:bg-slate-50 dark:hover:bg-slate-700/40'
+  };
+}
+
 function renderProjectsViews() {
   const filtered = getFilteredProjects();
 
@@ -1101,6 +1148,7 @@ function renderProjectsViews() {
       const compT = Number(p.completed_tasks_count || 0);
       const pct = totalT > 0 ? Math.round((compT / totalT) * 100) : 0;
       const desc = stripHtml(p.description);
+      const urg = getProjectUrgencyStyle(p, pct);
       const teamPills = (p.users || []).map(u =>
         `<span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-medium">${u.first_name}</span>`
       ).join(' ');
@@ -1110,15 +1158,16 @@ function renderProjectsViews() {
       ).join('');
 
       return `
-        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40 transition">
+        <tr class="${urg.rowCls} transition">
           <td class="py-3.5 px-4 max-w-xs">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
               <button onclick="toggleProjectFavorite(${p.id})" class="${p.is_favorite ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'}" title="Pin / Favorite">
                 ★
               </button>
               <button onclick="openProjectDetailModal(${p.id})" class="font-bold text-slate-900 dark:text-white hover:text-blue-600 text-left text-sm">
                 ${p.title}
               </button>
+              ${urg.badgeHtml}
             </div>
             ${desc ? `<p class="text-[11px] text-slate-500 line-clamp-1 mt-0.5 pl-5">${desc}</p>` : ''}
           </td>
@@ -1182,7 +1231,7 @@ function renderProjectsViews() {
     const compT = Number(p.completed_tasks_count || 0);
     const pct = totalT > 0 ? Math.round((compT / totalT) * 100) : 0;
     const desc = stripHtml(p.description);
-    const urg = getCardUrgencyStyle(p.end_date, p.status_title, pct);
+    const urg = getProjectUrgencyStyle(p, pct);
     const teamPills = (p.users || []).map(u =>
       `<span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px]">${u.first_name}</span>`
     ).join(' ');
@@ -1248,18 +1297,16 @@ function renderProjectsViews() {
             const totalT = Number(p.tasks_count || 0);
             const compT = Number(p.completed_tasks_count || 0);
             const pct = totalT > 0 ? Math.round((compT / totalT) * 100) : 0;
-            const urg = getCardUrgencyStyle(p.end_date, p.status_title, pct);
+            const urg = getProjectUrgencyStyle(p, pct);
             return `
               <div class="p-3.5 rounded-lg border shadow-xs space-y-2 ${urg.cardCls}">
                 <div class="flex items-start justify-between gap-2">
                   <button onclick="openProjectDetailModal(${p.id})" class="font-semibold text-xs text-slate-900 dark:text-white hover:text-blue-600 text-left">
                     ${p.title}
                   </button>
-                  <div class="flex items-center gap-1 shrink-0">
-                    ${urg.badgeHtml}
-                    <span class="px-1.5 py-0.5 rounded text-[10px] border ${badgeClass(p.priority_color)}">${p.priority_title || 'Normal'}</span>
-                  </div>
+                  <span class="px-1.5 py-0.5 rounded text-[10px] border shrink-0 ${badgeClass(p.priority_color)}">${p.priority_title || 'Normal'}</span>
                 </div>
+                ${urg.badgeHtml ? `<div class="flex flex-wrap items-center gap-1">${urg.badgeHtml}</div>` : ''}
                 <div class="flex items-center justify-between text-[10px] font-mono text-slate-500">
                   <span>Start: ${formatDate(p.start_date)}</span>
                   <span class="${urg.dueTextCls}">End: ${formatDate(p.end_date)}</span>
