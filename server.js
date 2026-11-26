@@ -3949,7 +3949,10 @@ app.get('/api/meetings/monthly-report', authMiddleware, async (req, res) => {
     let individualMeetingsCount = 0;
     let totalAttendanceSeats = 0;
     let totalAttendedSeats = 0;
+    let totalGuestsInvited = 0;
+    let totalGuestsAttended = 0;
 
+    const guestStatsMap = {};
     const momDigest = [];
 
     meetings.forEach(m => {
@@ -3988,9 +3991,42 @@ app.get('/api/meetings/monthly-report', authMiddleware, async (req, res) => {
       const guestList = Array.isArray(rec.guests) ? rec.guests : [];
       guestList.forEach(g => {
         const gst = rec.guest_attendance?.[g.id]?.status || 'pending';
+        const gKey = (g.email && g.email.trim()) ? g.email.trim().toLowerCase() : `name:${String(g.name || 'Guest').trim().toLowerCase()}`;
+        if (!guestStatsMap[gKey]) {
+          guestStatsMap[gKey] = {
+            name: g.name || 'Guest',
+            email: g.email || '',
+            organization: g.organization || g.company || '',
+            invited: 0,
+            present: 0,
+            late: 0,
+            excused: 0,
+            absent: 0,
+            pending: 0,
+            attendance_rate: 0,
+            appearances: []
+          };
+        }
+        const gs = guestStatsMap[gKey];
+        gs.invited++;
+        totalGuestsInvited++;
+        if (gst === 'present') { gs.present++; totalGuestsAttended++; }
+        else if (gst === 'late') { gs.late++; totalGuestsAttended++; }
+        else if (gst === 'excused') gs.excused++;
+        else if (gst === 'absent') gs.absent++;
+        else gs.pending++;
+
+        gs.appearances.push({
+          meeting_id: m.id,
+          title: m.title,
+          date: String(m.start_date_time).substring(0, 10),
+          status: gst
+        });
+
         attDetails.push({
           guest_id: g.id,
           name: `${g.name} (Guest)`,
+          email: g.email || '',
           status: gst,
           role_type: 'guest'
         });
@@ -4027,6 +4063,14 @@ app.get('/api/meetings/monthly-report', authMiddleware, async (req, res) => {
       })
       .sort((a, b) => b.invited - a.invited);
 
+    const guestAttendanceScorecard = Object.values(guestStatsMap)
+      .map(g => {
+        const evaluated = g.present + g.late + g.absent + g.excused;
+        g.attendance_rate = evaluated > 0 ? Math.round(((g.present + g.late) / evaluated) * 100) : 0;
+        return g;
+      })
+      .sort((a, b) => (b.present + b.late) - (a.present + a.late) || b.invited - a.invited);
+
     const overallAttendanceRate = totalAttendanceSeats > 0
       ? Math.round((totalAttendedSeats / totalAttendanceSeats) * 100)
       : 0;
@@ -4040,9 +4084,12 @@ app.get('/api/meetings/monthly-report', authMiddleware, async (req, res) => {
         teamMeetingsCount,
         individualMeetingsCount,
         overallAttendanceRate,
+        totalGuestsInvited,
+        totalGuestsAttended,
         activeRecurringRules: (govStore.recurringRules || []).filter(r => r.is_active).length
       },
       memberAttendanceScorecard,
+      guestAttendanceScorecard,
       momDigest
     });
   } catch (err) {

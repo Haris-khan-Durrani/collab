@@ -2310,6 +2310,47 @@ window.loadMonthlyMeetingReport = async function() {
       }).join('');
     }
 
+    // 1B. Render Guest Appearances & Attendance Scorecard
+    const gTbody = document.getElementById('rep-guest-attendance-tbody');
+    const gBadge = document.getElementById('rep-guest-summary-badge');
+    const gList = res.guestAttendanceScorecard || [];
+    if (gBadge) {
+      gBadge.textContent = `${k.totalGuestsAttended || 0} / ${k.totalGuestsInvited || 0} Attended`;
+    }
+    if (gTbody) {
+      if (gList.length === 0) {
+        gTbody.innerHTML = `<tr><td colspan="5" class="py-5 text-center text-slate-400">No external guests invited in ${month}.</td></tr>`;
+      } else {
+        gTbody.innerHTML = gList.map(g => {
+          const attended = (g.present || 0) + (g.late || 0);
+          const rateColor = g.attendance_rate >= 85 ? 'text-emerald-600' : (g.attendance_rate >= 50 ? 'text-amber-600' : 'text-slate-500');
+          const appList = (g.appearances || []).map(a => {
+            const stCls = a.status === 'present' ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+              : a.status === 'late' ? 'text-amber-700 bg-amber-50 border-amber-200'
+              : a.status === 'absent' ? 'text-red-700 bg-red-50 border-red-200'
+              : 'text-slate-500 bg-slate-100 border-slate-200';
+            return `<span class="inline-block px-1.5 py-0.5 rounded border text-[9px] font-semibold ${stCls}">${a.date}: ${escapeHtml(a.title)} (${a.status.toUpperCase()})</span>`;
+          }).join(' ');
+          return `
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/40">
+              <td class="py-2.5 px-3">
+                <div class="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <span>${escapeHtml(g.name)}</span>
+                  <span class="px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-[9px] font-semibold">GUEST</span>
+                </div>
+                ${g.email ? `<div class="text-[10px] text-slate-400">${escapeHtml(g.email)}</div>` : ''}
+                ${appList ? `<div class="flex flex-wrap gap-1 mt-1">${appList}</div>` : ''}
+              </td>
+              <td class="py-2.5 px-2 text-center font-semibold align-top">${g.invited}</td>
+              <td class="py-2.5 px-2 text-center font-bold text-emerald-600 align-top">${attended}</td>
+              <td class="py-2.5 px-2 text-center font-bold text-red-600 align-top">${g.absent || 0}</td>
+              <td class="py-2.5 px-3 text-right font-bold ${rateColor} align-top">${g.attendance_rate}%</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
     // 2. Render Monthly Team Highlights & Escalations for Higher Management
     const hlBox = document.getElementById('rep-highlights-digest');
     if (highlightsItems.length === 0) {
@@ -2343,13 +2384,15 @@ window.loadMonthlyMeetingReport = async function() {
     } else {
       ledgerEl.innerHTML = digest.map(m => {
         const pBadges = (m.participants || []).map(p => {
-          let cls = 'bg-slate-100 text-slate-600 border-slate-200';
-          let icon = '•';
-          if (p.status === 'present') { cls = 'bg-emerald-50 text-emerald-700 border-emerald-200'; icon = '✓'; }
-          else if (p.status === 'late') { cls = 'bg-amber-50 text-amber-700 border-amber-200'; icon = '🕒'; }
-          else if (p.status === 'absent') { cls = 'bg-red-50 text-red-700 border-red-200'; icon = '✕'; }
-          else if (p.status === 'excused') { cls = 'bg-blue-50 text-blue-700 border-blue-200'; icon = 'ℹ'; }
-          return `<span class="px-2 py-0.5 rounded border text-[11px] font-semibold ${cls}">${icon} ${p.name} (${p.status.toUpperCase()})</span>`;
+          let cls = p.role_type === 'guest'
+            ? 'bg-purple-50 text-purple-700 border-purple-200'
+            : 'bg-slate-100 text-slate-600 border-slate-200';
+          let icon = p.role_type === 'guest' ? '🌐' : '•';
+          if (p.status === 'present') { cls = 'bg-emerald-50 text-emerald-700 border-emerald-200'; icon = p.role_type === 'guest' ? '🌐✓' : '✓'; }
+          else if (p.status === 'late') { cls = 'bg-amber-50 text-amber-700 border-amber-200'; icon = p.role_type === 'guest' ? '🌐🕒' : '🕒'; }
+          else if (p.status === 'absent') { cls = 'bg-red-50 text-red-700 border-red-200'; icon = p.role_type === 'guest' ? '🌐✕' : '✕'; }
+          else if (p.status === 'excused') { cls = 'bg-blue-50 text-blue-700 border-blue-200'; icon = p.role_type === 'guest' ? '🌐ℹ' : 'ℹ'; }
+          return `<span class="px-2 py-0.5 rounded border text-[11px] font-semibold ${cls}">${icon} ${escapeHtml(p.name)} (${p.status.toUpperCase()})</span>`;
         }).join(' ');
 
         return `
@@ -2403,9 +2446,10 @@ window.exportMonthlyMomCSV = function() {
     showToast('Open the End-of-Month Report first', 'error');
     return;
   }
-  const rows = [['Meeting ID', 'Date', 'Time Slot', 'Type', 'Title', 'Workspace', 'Attendance Summary', 'Team Highlights', 'Discussion Minutes (MoM)', 'Action Decisions']];
+  const rows = [['Meeting ID', 'Date', 'Time Slot', 'Type', 'Title', 'Workspace', 'Team Attendance', 'Guest Appearances', 'Team Highlights', 'Discussion Minutes (MoM)', 'Action Decisions']];
   lastMonthlyReportData.momDigest.forEach(m => {
-    const attStr = (m.participants || []).map(p => `${p.name}: ${p.status.toUpperCase()}`).join('; ');
+    const teamAttStr = (m.participants || []).filter(p => p.role_type !== 'guest').map(p => `${p.name}: ${p.status.toUpperCase()}`).join('; ');
+    const guestAttStr = (m.participants || []).filter(p => p.role_type === 'guest').map(p => `${p.name}: ${p.status.toUpperCase()}`).join('; ');
     rows.push([
       m.id,
       m.date,
@@ -2413,7 +2457,8 @@ window.exportMonthlyMomCSV = function() {
       m.scope,
       m.title,
       m.workspace_title,
-      attStr,
+      teamAttStr,
+      guestAttStr || 'None',
       m.mom_highlights || '',
       m.mom_discussion || '',
       m.mom_decisions || ''
