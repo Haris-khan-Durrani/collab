@@ -106,6 +106,92 @@ async function savePendingWorkspaceDeletions(list) {
   }
 }
 
+// ==========================================
+// COMPANY HOLIDAY & WEEKLY OFF-DAY CALENDAR
+// Stored in `settings` (variable = 'ceo_holiday_calendar')
+// ==========================================
+const DEFAULT_HOLIDAY_CALENDAR = {
+  weekly_off_days: [0], // 0 = Sunday (default UAE off-day)
+  pause_recurring_tasks: true,
+  pause_task_reminders: true,
+  pause_recurring_meetings: true,
+  holidays: [] // [{ id, date: 'YYYY-MM-DD', name: 'UAE National Day' }]
+};
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+async function getHolidayCalendarConfig() {
+  try {
+    const [rows] = await pool.query("SELECT value FROM settings WHERE variable = 'ceo_holiday_calendar' LIMIT 1");
+    if (!rows.length || !rows[0].value) {
+      return { ...DEFAULT_HOLIDAY_CALENDAR, holidays: [] };
+    }
+    const parsed = JSON.parse(rows[0].value);
+    return {
+      weekly_off_days: Array.isArray(parsed.weekly_off_days) ? parsed.weekly_off_days.map(Number).filter(d => d >= 0 && d <= 6) : [0],
+      pause_recurring_tasks: parsed.pause_recurring_tasks !== false,
+      pause_task_reminders: parsed.pause_task_reminders !== false,
+      pause_recurring_meetings: parsed.pause_recurring_meetings !== false,
+      holidays: Array.isArray(parsed.holidays)
+        ? parsed.holidays
+            .filter(h => h && h.date && /^\d{4}-\d{2}-\d{2}$/.test(String(h.date)))
+            .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+        : []
+    };
+  } catch {
+    return { ...DEFAULT_HOLIDAY_CALENDAR, holidays: [] };
+  }
+}
+
+async function saveHolidayCalendarConfig(cfg) {
+  const clean = {
+    weekly_off_days: [...new Set((Array.isArray(cfg.weekly_off_days) ? cfg.weekly_off_days : [0]).map(Number).filter(d => d >= 0 && d <= 6))],
+    pause_recurring_tasks: cfg.pause_recurring_tasks !== false,
+    pause_task_reminders: cfg.pause_task_reminders !== false,
+    pause_recurring_meetings: cfg.pause_recurring_meetings !== false,
+    holidays: (Array.isArray(cfg.holidays) ? cfg.holidays : [])
+      .filter(h => h && h.date && /^\d{4}-\d{2}-\d{2}$/.test(String(h.date)))
+      .map(h => ({
+        id: h.id || `h_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        date: String(h.date).substring(0, 10),
+        name: String(h.name || 'Public Holiday').trim()
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  };
+  const jsonStr = JSON.stringify(clean);
+  const [rows] = await pool.query("SELECT id FROM settings WHERE variable = 'ceo_holiday_calendar' LIMIT 1");
+  if (rows.length) {
+    await pool.query("UPDATE settings SET value = ?, updated_at = NOW() WHERE variable = 'ceo_holiday_calendar'", [jsonStr]);
+  } else {
+    await pool.query("INSERT INTO settings (variable, value, created_at, updated_at) VALUES ('ceo_holiday_calendar', ?, NOW(), NOW())", [jsonStr]);
+  }
+  return clean;
+}
+
+function getOffDayInfo(dateStr, calCfg) {
+  if (!dateStr || !calCfg) return { isOff: false };
+  const d = String(dateStr).substring(0, 10);
+  const holiday = (calCfg.holidays || []).find(h => h.date === d);
+  if (holiday) {
+    return { isOff: true, type: 'holiday', label: holiday.name };
+  }
+  const dow = new Date(d + 'T12:00:00Z').getUTCDay();
+  if ((calCfg.weekly_off_days || []).includes(dow)) {
+    return { isOff: true, type: 'weekend', label: `${WEEKDAY_NAMES[dow]} (Weekly Off)` };
+  }
+  return { isOff: false };
+}
+
+function advanceToWorkingDay(dateStr, calCfg) {
+  if (!calCfg) return dateStr;
+  let cur = String(dateStr).substring(0, 10);
+  for (let i = 0; i < 31; i++) {
+    if (!getOffDayInfo(cur, calCfg).isOff) return cur;
+    cur = addDaysToDateStr(cur, 1);
+  }
+  return cur;
+}
+
 async function getHeldWorkspaceIds() {
   const list = await getPendingWorkspaceDeletions();
   return list.map(x => Number(x.workspace_id)).filter(Boolean);
@@ -377,29 +463,30 @@ function addDaysToDateStr(dateStr, days) {
   return dt.toISOString().substring(0, 10);
 }
 
-// Compute the Next Upcoming Date & Time Slot for a Recurring Rule
-function computeNextRecurringSlotDate(rule) {
+// Compute the Next Upcoming Date & Time Slot for a Recurring Rule (auto-skipping off-days/holidays if calCfg provided)
+function computeNextRecurringSlotDate(rule, calCfg = null) {
   const nowStr = getLocalDateStr();
   const baseDateStr = rule.last_generated_date || rule.starts_from || nowStr;
-  const dt = new Date(baseDateStr + 'T12:00:00');
+  const dt = new Date(String(baseDateStr).substring(0, 10) + 'T12:00:00Z');
   const freq = rule.frequency || 'weekly';
 
-  if (freq === 'daily') dt.setDate(dt.getDate() + 1);
-  else if (freq === 'weekly') dt.setDate(dt.getDate() + 7);
-  else if (freq === 'biweekly') dt.setDate(dt.getDate() + 14);
-  else if (freq === 'monthly') dt.setMonth(dt.getMonth() + 1);
-  else if (freq === 'yearly') dt.setFullYear(dt.getFullYear() + 1);
-  else dt.setDate(dt.getDate() + 7);
+  if (freq === 'daily') dt.setUTCDate(dt.getUTCDate() + 1);
+  else if (freq === 'weekly') dt.setUTCDate(dt.getUTCDate() + 7);
+  else if (freq === 'biweekly') dt.setUTCDate(dt.getUTCDate() + 14);
+  else if (freq === 'monthly') dt.setUTCMonth(dt.getUTCMonth() + 1);
+  else if (freq === 'yearly') dt.setUTCFullYear(dt.getUTCFullYear() + 1);
+  else dt.setUTCDate(dt.getUTCDate() + 7);
 
-  while (getLocalDateStr(dt) < nowStr) {
-    if (freq === 'daily') dt.setDate(dt.getDate() + 1);
-    else if (freq === 'weekly') dt.setDate(dt.getDate() + 7);
-    else if (freq === 'biweekly') dt.setDate(dt.getDate() + 14);
-    else if (freq === 'monthly') dt.setMonth(dt.getMonth() + 1);
-    else if (freq === 'yearly') dt.setFullYear(dt.getFullYear() + 1);
+  while (dt.toISOString().substring(0, 10) < nowStr) {
+    if (freq === 'daily') dt.setUTCDate(dt.getUTCDate() + 1);
+    else if (freq === 'weekly') dt.setUTCDate(dt.getUTCDate() + 7);
+    else if (freq === 'biweekly') dt.setUTCDate(dt.getUTCDate() + 14);
+    else if (freq === 'monthly') dt.setUTCMonth(dt.getUTCMonth() + 1);
+    else if (freq === 'yearly') dt.setUTCFullYear(dt.getUTCFullYear() + 1);
     else break;
   }
-  return getLocalDateStr(dt);
+  const candidate = dt.toISOString().substring(0, 10);
+  return calCfg ? advanceToWorkingDay(candidate, calCfg) : candidate;
 }
 
 // Helper: Spawn a new occurrence of a recurring task with new date, preserved duration, time slot & assignees
@@ -514,50 +601,60 @@ async function runAutomatedCronJobs(isManual = false) {
   const summary = { recurringCreated: 0, recurringMeetingsCreated: 0, remindersSent: 0, meetingAlerts: 0 };
 
   try {
+    const now = new Date();
+    const todayStr = getLocalDateStr(now);
+    const todayNoon = new Date(todayStr + 'T12:00:00Z');
+    const calCfg = await getHolidayCalendarConfig();
+    const todayOffInfo = getOffDayInfo(todayStr, calCfg);
+
     // ----------------------------------------------------
     // JOB 1: PROCESS RECURRING TASKS (recurring_tasks table)
     // ----------------------------------------------------
-    const [recTasks] = await pool.query(`
-      SELECT rt.*, t.title, t.description, t.workspace_id, t.project_id, t.status_id, t.priority_id,
-             t.start_date, t.due_date, t.billing_type, t.client_can_discuss, t.created_by, t.note
-      FROM recurring_tasks rt
-      JOIN tasks t ON t.id = rt.task_id
-      WHERE rt.is_active = 1
-    `);
-
-    const now = new Date();
-    const todayStr = getLocalDateStr(now);
-    const todayNoon = new Date(todayStr + 'T12:00:00');
-
-    for (const rt of recTasks) {
-      if (rt.number_of_occurrences && Number(rt.completed_occurrences || 0) >= Number(rt.number_of_occurrences)) {
-        await pool.query('UPDATE recurring_tasks SET is_active = 0 WHERE id = ?', [rt.id]);
-        continue;
+    if (todayOffInfo.isOff && calCfg.pause_recurring_tasks) {
+      const skipKey = `skip_rec_${todayStr}`;
+      if (!cronState.sentMeetingAlertKeys.has(skipKey)) {
+        cronState.sentMeetingAlertKeys.add(skipKey);
+        addCronLog('HOLIDAY', `Paused auto-recurring tasks today (${todayStr}) — ${todayOffInfo.label}`);
       }
+    } else {
+      const [recTasks] = await pool.query(`
+        SELECT rt.*, t.title, t.description, t.workspace_id, t.project_id, t.status_id, t.priority_id,
+               t.start_date, t.due_date, t.billing_type, t.client_can_discuss, t.created_by, t.note
+        FROM recurring_tasks rt
+        JOIN tasks t ON t.id = rt.task_id
+        WHERE rt.is_active = 1
+      `);
 
-      const lastDateStr = rt.last_created_at ? String(rt.last_created_at).substring(0, 10) : null;
-      if (lastDateStr === todayStr) continue; // Already generated today
+      for (const rt of recTasks) {
+        if (rt.number_of_occurrences && Number(rt.completed_occurrences || 0) >= Number(rt.number_of_occurrences)) {
+          await pool.query('UPDATE recurring_tasks SET is_active = 0 WHERE id = ?', [rt.id]);
+          continue;
+        }
 
-      let isDue = false;
-      const startsFromStr = rt.starts_from ? String(rt.starts_from).substring(0, 10) : todayStr;
-      if (startsFromStr > todayStr) continue;
+        const lastDateStr = rt.last_created_at ? String(rt.last_created_at).substring(0, 10) : null;
+        if (lastDateStr === todayStr) continue; // Already generated today
 
-      if (!lastDateStr) {
-        isDue = true;
-      } else {
-        const lastNoon = new Date(lastDateStr + 'T12:00:00');
-        const diffDays = Math.round((todayNoon - lastNoon) / (1000 * 60 * 60 * 24));
-        if (rt.frequency === 'daily' && diffDays >= 1) isDue = true;
-        else if (rt.frequency === 'weekly' && diffDays >= 7) isDue = true;
-        else if (rt.frequency === 'monthly' && diffDays >= 28) isDue = true;
-        else if (rt.frequency === 'yearly' && diffDays >= 365) isDue = true;
-      }
+        let isDue = false;
+        const startsFromStr = rt.starts_from ? String(rt.starts_from).substring(0, 10) : todayStr;
+        if (startsFromStr > todayStr) continue;
 
-      if (isDue) {
-        const spawned = await spawnRecurringTaskOccurrence(rt, todayStr);
-        summary.recurringCreated++;
-        cronState.recurringProcessed++;
-        addCronLog('RECURRING', `Auto-created ${rt.frequency} task "${rt.title}" (#${spawned.newTaskId}) for ${spawned.newStartDate}${spawned.slotLabel}`);
+        if (!lastDateStr) {
+          isDue = true;
+        } else {
+          const lastNoon = new Date(lastDateStr + 'T12:00:00Z');
+          const diffDays = Math.round((todayNoon - lastNoon) / (1000 * 60 * 60 * 24));
+          if (rt.frequency === 'daily' && diffDays >= 1) isDue = true;
+          else if (rt.frequency === 'weekly' && diffDays >= 7) isDue = true;
+          else if (rt.frequency === 'monthly' && diffDays >= 28) isDue = true;
+          else if (rt.frequency === 'yearly' && diffDays >= 365) isDue = true;
+        }
+
+        if (isDue) {
+          const spawned = await spawnRecurringTaskOccurrence(rt, todayStr);
+          summary.recurringCreated++;
+          cronState.recurringProcessed++;
+          addCronLog('RECURRING', `Auto-created ${rt.frequency} task "${rt.title}" (#${spawned.newTaskId}) for ${spawned.newStartDate}${spawned.slotLabel}`);
+        }
       }
     }
 
@@ -566,45 +663,53 @@ async function runAutomatedCronJobs(isManual = false) {
     // ----------------------------------------------------
     const currentTimeStr = getLocalTimeStr(now);
     const nowUaeDateTimeStr = getLocalDateTimeStr(now);
-    const [dueReminders] = await pool.query(`
-      SELECT r.*, t.title AS task_title, t.workspace_id, t.due_date, t.created_by
-      FROM reminders r
-      JOIN tasks t ON t.id = r.remindable_id
-      WHERE r.is_active = 1
-        AND r.remindable_type LIKE '%Task'
-        AND (r.time_of_day IS NULL OR r.time_of_day <= ?)
-        AND (r.last_sent_at IS NULL OR DATE(r.last_sent_at) < ?)
-    `, [currentTimeStr, todayStr]);
+    if (todayOffInfo.isOff && calCfg.pause_task_reminders) {
+      const skipRemKey = `skip_rem_${todayStr}`;
+      if (!cronState.sentMeetingAlertKeys.has(skipRemKey)) {
+        cronState.sentMeetingAlertKeys.add(skipRemKey);
+        addCronLog('HOLIDAY', `Silenced task reminder emails today (${todayStr}) — ${todayOffInfo.label}`);
+      }
+    } else {
+      const [dueReminders] = await pool.query(`
+        SELECT r.*, t.title AS task_title, t.workspace_id, t.due_date, t.created_by
+        FROM reminders r
+        JOIN tasks t ON t.id = r.remindable_id
+        WHERE r.is_active = 1
+          AND r.remindable_type LIKE '%Task'
+          AND (r.time_of_day IS NULL OR r.time_of_day <= ?)
+          AND (r.last_sent_at IS NULL OR DATE(r.last_sent_at) < ?)
+      `, [currentTimeStr, todayStr]);
 
-    for (const rem of dueReminders) {
-      const [assignees] = await pool.query('SELECT user_id FROM task_user WHERE task_id = ?', [rem.remindable_id]);
-      const assigneeIds = assignees.map(a => a.user_id);
+      for (const rem of dueReminders) {
+        const [assignees] = await pool.query('SELECT user_id FROM task_user WHERE task_id = ?', [rem.remindable_id]);
+        const assigneeIds = assignees.map(a => a.user_id);
 
-      await pool.query('UPDATE reminders SET last_sent_at = ?, updated_at = NOW() WHERE id = ?', [nowUaeDateTimeStr, rem.id]);
+        await pool.query('UPDATE reminders SET last_sent_at = ?, updated_at = NOW() WHERE id = ?', [nowUaeDateTimeStr, rem.id]);
 
-      if (assigneeIds.length > 0) {
-        await notifyUsersAndSendEmail({
-          workspace_id: rem.workspace_id,
-          from_user_id: rem.created_by || 1,
-          type: 'task',
-          type_id: rem.remindable_id,
-          action: 'reminder',
-          title: `Task Reminder: ${rem.task_title}`,
-          message: `Friendly reminder for your task "${rem.task_title}".`,
-          emailSubject: `⏰ Task Reminder: ${rem.task_title}`,
-          emailHtml: `
-            <p>This is an automated scheduled reminder for your assigned task:</p>
-            <div style="background: #fffbeb; padding: 14px; border-left: 4px solid #f59e0b; margin: 14px 0;">
-              <p style="margin: 0 0 6px 0;"><strong>Task:</strong> ${rem.task_title}</p>
-              <p style="margin: 0;"><strong>Due Date:</strong> ${rem.due_date ? String(rem.due_date).substring(0, 10) : 'Today'}</p>
-            </div>
-          `,
-          user_ids: assigneeIds,
-          send_email: true
-        });
-        summary.remindersSent++;
-        cronState.remindersSent++;
-        addCronLog('REMINDER', `Sent reminder for task "${rem.task_title}" (#${rem.remindable_id})`);
+        if (assigneeIds.length > 0) {
+          await notifyUsersAndSendEmail({
+            workspace_id: rem.workspace_id,
+            from_user_id: rem.created_by || 1,
+            type: 'task',
+            type_id: rem.remindable_id,
+            action: 'reminder',
+            title: `Task Reminder: ${rem.task_title}`,
+            message: `Friendly reminder for your task "${rem.task_title}".`,
+            emailSubject: `⏰ Task Reminder: ${rem.task_title}`,
+            emailHtml: `
+              <p>This is an automated scheduled reminder for your assigned task:</p>
+              <div style="background: #fffbeb; padding: 14px; border-left: 4px solid #f59e0b; margin: 14px 0;">
+                <p style="margin: 0 0 6px 0;"><strong>Task:</strong> ${rem.task_title}</p>
+                <p style="margin: 0;"><strong>Due Date:</strong> ${rem.due_date ? String(rem.due_date).substring(0, 10) : 'Today'}</p>
+              </div>
+            `,
+            user_ids: assigneeIds,
+            send_email: true
+          });
+          summary.remindersSent++;
+          cronState.remindersSent++;
+          addCronLog('REMINDER', `Sent reminder for task "${rem.task_title}" (#${rem.remindable_id})`);
+        }
       }
     }
 
@@ -616,8 +721,8 @@ async function runAutomatedCronJobs(isManual = false) {
 
     for (const rule of govStore.recurringRules) {
       if (!rule.is_active) continue;
-      // Ensure the next occurrence date is always scheduled in `meetings` (up to 14 days ahead for weekly/daily)
-      const nextTargetDate = computeNextRecurringSlotDate(rule);
+      // Ensure the next occurrence date is always scheduled in `meetings` (skipping weekly off-days & holidays if enabled)
+      const nextTargetDate = computeNextRecurringSlotDate(rule, calCfg.pause_recurring_meetings ? calCfg : null);
       const horizonDate = addDaysToDateStr(todayStr, rule.frequency === 'daily' ? 3 : 14);
       if (nextTargetDate > horizonDate) continue;
 
@@ -1321,6 +1426,9 @@ app.get('/api/meta', authMiddleware, async (req, res) => {
       r.permission_ids = rolePermMap[r.id] || [];
     });
 
+    const holidayCalendar = await getHolidayCalendarConfig();
+    const todayOffInfo = getOffDayInfo(getLocalDateStr(), holidayCalendar);
+
     res.json({
       error: false,
       workspaces,
@@ -1333,6 +1441,8 @@ app.get('/api/meta', authMiddleware, async (req, res) => {
       users,
       clients,
       cronState,
+      holidayCalendar,
+      todayOffInfo,
       laravelUrl: process.env.LARAVEL_URL || 'http://taskify.test'
     });
   } catch (err) {
@@ -4147,6 +4257,10 @@ app.delete('/api/meetings/:id', authMiddleware, async (req, res) => {
 // ==========================================
 app.get('/api/cron/status', authMiddleware, async (req, res) => {
   const todayStr = getLocalDateStr();
+  const calCfg = await getHolidayCalendarConfig();
+  const todayOffInfo = getOffDayInfo(todayStr, calCfg);
+  const taskCal = calCfg.pause_recurring_tasks ? calCfg : null;
+
   const [recListRaw] = await pool.query(`
     SELECT rt.*, t.title AS task_title, t.due_date, p.title AS project_title,
            (SELECT GROUP_CONCAT(CONCAT(u.first_name, ' ', u.last_name) SEPARATOR ', ')
@@ -4165,15 +4279,15 @@ app.get('/api/cron/status', authMiddleware, async (req, res) => {
     let nextRunDate = null;
     if (Number(rt.is_active) === 1) {
       if (!lastDate && startsFrom >= todayStr) {
-        nextRunDate = startsFrom;
+        nextRunDate = taskCal ? advanceToWorkingDay(startsFrom, taskCal) : startsFrom;
       } else if (!lastDate && startsFrom < todayStr) {
-        nextRunDate = todayStr;
+        nextRunDate = taskCal ? advanceToWorkingDay(todayStr, taskCal) : todayStr;
       } else {
         nextRunDate = computeNextRecurringSlotDate({
           frequency: rt.frequency,
           last_generated_date: lastDate,
           starts_from: startsFrom
-        });
+        }, taskCal);
       }
     }
     return {
@@ -4199,9 +4313,35 @@ app.get('/api/cron/status', authMiddleware, async (req, res) => {
     error: false,
     cronState,
     serverToday: todayStr,
+    holidayCalendar: calCfg,
+    todayOffInfo,
     recurringTasks: recList,
     reminders: remList
   });
+});
+
+// Company Holiday & Weekly Off-Day Calendar Settings Endpoints
+app.get('/api/settings/holiday-calendar', authMiddleware, async (req, res) => {
+  try {
+    const config = await getHolidayCalendarConfig();
+    res.json({ error: false, config, todayOffInfo: getOffDayInfo(getLocalDateStr(), config) });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+app.put('/api/settings/holiday-calendar', authMiddleware, async (req, res) => {
+  const canManage = req.user.isStrictAdmin || req.user.permissions.includes('manage_system_notifications');
+  if (!canManage) {
+    return res.status(403).json({ error: true, message: 'Only Super Admin / Admin can update Company Calendar & Holidays.' });
+  }
+  try {
+    const saved = await saveHolidayCalendarConfig(req.body || {});
+    addCronLog('HOLIDAY', `Updated Company Calendar: ${saved.weekly_off_days.map(d => WEEKDAY_NAMES[d]).join(', ') || 'No weekly off'} & ${saved.holidays.length} public holiday(s)`);
+    res.json({ error: false, message: 'Company Holiday & Off-Day Calendar saved!', config: saved });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
 });
 
 // Toggle Pause / Resume on a Recurring Task Creator

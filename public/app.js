@@ -761,6 +761,20 @@ async function loadExecCalendarActivity() {
   }
 }
 
+function getClientOffDayInfo(dateStr) {
+  const cal = state.meta?.holidayCalendar;
+  if (!dateStr || !cal) return { isOff: false };
+  const d = String(dateStr).substring(0, 10);
+  const hol = (cal.holidays || []).find(h => h.date === d);
+  if (hol) return { isOff: true, type: 'holiday', label: hol.name };
+  const dow = new Date(d + 'T12:00:00Z').getUTCDay();
+  const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  if ((cal.weekly_off_days || []).includes(dow)) {
+    return { isOff: true, type: 'weekend', label: `${names[dow]} (Weekly Off)` };
+  }
+  return { isOff: false };
+}
+
 function renderExecCalendarGrid() {
   const grid = document.getElementById('exec-cal-grid');
   const labelEl = document.getElementById('exec-cal-month-label');
@@ -786,6 +800,7 @@ function renderExecCalendarGrid() {
   for (let day = 1; day <= daysInMonth; day++) {
     const dStr = `${execCalState.month}-${String(day).padStart(2, '0')}`;
     const info = execCalState.days[dStr] || { done: [], started: [], planned: [], meetings: [], activities: [] };
+    const offInfo = getClientOffDayInfo(dStr);
     const isToday = dStr === todayStr;
     const isSelected = dStr === execCalState.selectedDate;
 
@@ -797,6 +812,11 @@ function renderExecCalendarGrid() {
     const hasAny = doneC + startC + planC + meetC + actC > 0;
 
     let badges = '';
+    if (offInfo.isOff && offInfo.type === 'holiday') {
+      badges += `<span class="px-1 py-0.2 rounded bg-purple-600 text-white text-[9px] font-bold truncate max-w-full" title="${escapeHtml(offInfo.label)}">🏖 ${escapeHtml(offInfo.label)}</span>`;
+    } else if (offInfo.isOff) {
+      badges += `<span class="px-1 py-0.2 rounded bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 text-[9px] font-bold" title="${escapeHtml(offInfo.label)}">OFF</span>`;
+    }
     if (doneC) badges += `<span class="px-1 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[9px] font-bold" title="${doneC} Done">✓${doneC}</span>`;
     if (startC) badges += `<span class="px-1 py-0.2 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[9px] font-bold" title="${startC} Started">▶${startC}</span>`;
     if (planC) badges += `<span class="px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-[9px] font-bold" title="${planC} Planned">📋${planC}</span>`;
@@ -807,11 +827,15 @@ function renderExecCalendarGrid() {
 
     const cellCls = isSelected
       ? 'border-blue-600 ring-2 ring-blue-200 dark:ring-blue-900 bg-blue-50/50 dark:bg-blue-950/30'
-      : (isToday
-        ? 'border-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
-        : (hasAny
-          ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'
-          : 'border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/30 hover:border-slate-300'));
+      : (offInfo.isOff && offInfo.type === 'holiday'
+        ? 'border-purple-300 dark:border-purple-800 bg-purple-50/60 dark:bg-purple-950/30 hover:border-purple-500'
+        : (isToday
+          ? 'border-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20'
+          : (offInfo.isOff
+            ? 'border-slate-200/80 dark:border-slate-800 bg-purple-50/25 dark:bg-slate-900/60 hover:border-purple-300'
+            : (hasAny
+              ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'
+              : 'border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/30 hover:border-slate-300'))));
 
     html += `
       <button type="button" onclick="selectExecCalDate('${dStr}')"
@@ -1847,12 +1871,46 @@ window.removeDraftMeetingGuest = function(i) {
   renderDraftGuestPills();
 };
 
+window.checkTaskHolidayConflict = function() {
+  const warnEl = document.getElementById('task-holiday-warning');
+  if (!warnEl) return;
+  const sVal = document.getElementById('task-start-date')?.value;
+  const dVal = document.getElementById('task-due-date')?.value;
+  const msgs = [];
+  if (sVal) {
+    const sOff = getClientOffDayInfo(sVal);
+    if (sOff.isOff) msgs.push(`Start Date (${sVal}) falls on ${sOff.label}`);
+  }
+  if (dVal && dVal !== sVal) {
+    const dOff = getClientOffDayInfo(dVal);
+    if (dOff.isOff) msgs.push(`Due Date (${dVal}) falls on ${dOff.label}`);
+  }
+  if (msgs.length) {
+    warnEl.textContent = `🏖 Heads up: ${msgs.join(' • ')}. Auto-recurring tasks & reminders skip off-days automatically.`;
+    warnEl.classList.remove('hidden');
+  } else {
+    warnEl.classList.add('hidden');
+  }
+};
+
 window.updateMeetingNextSlotPreview = function() {
   const box = document.getElementById('mt-next-slot-preview-box');
   const txt = document.getElementById('mt-next-slot-preview-text');
-  if (!box || !txt) return;
+  const warnEl = document.getElementById('meeting-holiday-warning');
   const freq = document.getElementById('mt-recurring-freq').value;
   const dateVal = document.getElementById('mt-date').value;
+
+  if (warnEl) {
+    const off = dateVal ? getClientOffDayInfo(dateVal) : { isOff: false };
+    if (off.isOff) {
+      warnEl.textContent = `🏖 Calendar Conflict: ${dateVal} is marked as ${off.label}. You can pick a working day to avoid disturbing the team.`;
+      warnEl.classList.remove('hidden');
+    } else {
+      warnEl.classList.add('hidden');
+    }
+  }
+
+  if (!box || !txt) return;
   if (freq === 'none' || !dateVal) { box.classList.add('hidden'); return; }
   const st = document.getElementById('mt-start-time').value;
   const en = document.getElementById('mt-end-time').value;
@@ -3068,6 +3126,33 @@ function renderCronTab() {
   document.getElementById('cron-rem-count').textContent = (cs.remindersSent || 0) + (cs.meetingAlertsSent || 0);
   document.getElementById('cron-email-count').textContent = cs.emailsDispatched || 0;
 
+  // Holiday & Off-Day Protection Live Status Banner
+  const holBanner = document.getElementById('cron-holiday-banner');
+  const calCfg = cd.holidayCalendar || state.meta?.holidayCalendar;
+  const todayOff = cd.todayOffInfo || state.meta?.todayOffInfo;
+  if (holBanner && calCfg) {
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const offDaysText = (calCfg.weekly_off_days || []).map(d => dayNames[d]).join(', ') || 'None';
+    const upcomingHols = (calCfg.holidays || []).filter(h => h.date >= (cd.serverToday || '')).slice(0, 2);
+    const nextHolText = upcomingHols.length
+      ? ` • Next Holiday: <strong>${upcomingHols.map(h => `${h.date} (${escapeHtml(h.name)})`).join(', ')}</strong>`
+      : '';
+    if (todayOff && todayOff.isOff) {
+      holBanner.className = 'p-3.5 rounded-xl border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-950/30 text-purple-900 dark:text-purple-200 text-xs flex flex-wrap items-center justify-between gap-2';
+      holBanner.innerHTML = `
+        <div>🏖 <strong>Today is ${escapeHtml(todayOff.label)}</strong> — Auto-recurring tasks &amp; reminder emails are automatically paused so the team is not disturbed.</div>
+        <button onclick="openHolidaySettingsFromCron()" class="px-2.5 py-1 rounded bg-purple-600 text-white font-semibold text-[11px]">Manage Holidays</button>
+      `;
+    } else {
+      holBanner.className = 'p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 text-xs flex flex-wrap items-center justify-between gap-2';
+      holBanner.innerHTML = `
+        <div>🏖 <strong>Holiday Protection Active (UAE GMT+4):</strong> Weekly Off: <strong>${offDaysText}</strong> • Public Holidays: <strong>${(calCfg.holidays || []).length}</strong>${nextHolText}</div>
+        <button onclick="openHolidaySettingsFromCron()" class="text-purple-600 dark:text-purple-400 font-semibold hover:underline">Configure Holidays →</button>
+      `;
+    }
+    holBanner.classList.remove('hidden');
+  }
+
   const recListEl = document.getElementById('cron-recurring-list');
   const recItems = cd.recurringTasks || [];
   const remItems = cd.reminders || [];
@@ -3236,9 +3321,139 @@ window.closeNotifyModal = function() {
 };
 
 // ============================================================================
-// TAB 9: SYSTEM CONFIGURATION (Statuses, Priorities, Tags, Roles)
+// TAB 9: SYSTEM CONFIGURATION (Holiday Calendar, Statuses, Priorities, Tags, Roles)
 // ============================================================================
+let draftHolidayCalendar = null;
+
+window.openHolidaySettingsFromCron = function() {
+  switchTab('settings');
+  setTimeout(() => {
+    document.getElementById('settings-holiday-calendar-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 80);
+};
+
+function renderHolidayCalendarSettings() {
+  const cfg = draftHolidayCalendar || state.meta?.holidayCalendar || {
+    weekly_off_days: [0],
+    pause_recurring_tasks: true,
+    pause_task_reminders: true,
+    pause_recurring_meetings: true,
+    holidays: []
+  };
+  draftHolidayCalendar = JSON.parse(JSON.stringify(cfg));
+
+  document.querySelectorAll('input[name="cal_off_day"]').forEach(cb => {
+    cb.checked = (draftHolidayCalendar.weekly_off_days || []).includes(Number(cb.value));
+  });
+  const pRec = document.getElementById('cal-pause-rec-tasks');
+  const pRem = document.getElementById('cal-pause-reminders');
+  const pMt = document.getElementById('cal-pause-rec-meetings');
+  if (pRec) pRec.checked = draftHolidayCalendar.pause_recurring_tasks !== false;
+  if (pRem) pRem.checked = draftHolidayCalendar.pause_task_reminders !== false;
+  if (pMt) pMt.checked = draftHolidayCalendar.pause_recurring_meetings !== false;
+
+  const listEl = document.getElementById('cal-holidays-list');
+  if (!listEl) return;
+  const hols = (draftHolidayCalendar.holidays || []).sort((a, b) => a.date.localeCompare(b.date));
+  if (hols.length === 0) {
+    listEl.innerHTML = `<div class="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-700 text-slate-400 text-center">No public holidays added yet. Add UAE National Day or click "🇦🇪 + Load UAE Holidays" above.</div>`;
+  } else {
+    listEl.innerHTML = hols.map((h, idx) => `
+      <div class="flex items-center justify-between p-2 rounded-lg bg-purple-50/50 dark:bg-slate-900 border border-purple-200/70 dark:border-slate-700">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200 font-mono font-bold text-[11px] shrink-0">${h.date}</span>
+          <span class="font-semibold text-slate-800 dark:text-slate-200 truncate">🏖 ${escapeHtml(h.name)}</span>
+        </div>
+        <button type="button" onclick="removePublicHolidayItem(${idx})" class="px-2 py-0.5 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 font-semibold text-[11px] shrink-0">Remove</button>
+      </div>
+    `).join('');
+  }
+}
+
+window.addPublicHolidayItem = function() {
+  const startVal = document.getElementById('cal-holiday-start')?.value;
+  const endVal = document.getElementById('cal-holiday-end')?.value || startVal;
+  const nameVal = (document.getElementById('cal-holiday-name')?.value || '').trim();
+  if (!startVal || !nameVal) {
+    showToast('Please select a date and enter the holiday name (e.g. UAE National Day).', 'error');
+    return;
+  }
+  if (!draftHolidayCalendar) renderHolidayCalendarSettings();
+
+  const cur = new Date(startVal + 'T12:00:00Z');
+  const end = new Date((endVal >= startVal ? endVal : startVal) + 'T12:00:00Z');
+  let added = 0;
+  for (let i = 0; i < 31 && cur <= end; i++) {
+    const dStr = cur.toISOString().substring(0, 10);
+    if (!draftHolidayCalendar.holidays.some(h => h.date === dStr)) {
+      draftHolidayCalendar.holidays.push({ id: `h_${Date.now()}_${i}`, date: dStr, name: nameVal });
+      added++;
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  document.getElementById('cal-holiday-start').value = '';
+  document.getElementById('cal-holiday-end').value = '';
+  document.getElementById('cal-holiday-name').value = '';
+  renderHolidayCalendarSettings();
+  showToast(`Added ${added} holiday date(s). Click "Save Calendar Settings" to apply.`);
+};
+
+window.removePublicHolidayItem = function(idx) {
+  if (!draftHolidayCalendar || !Array.isArray(draftHolidayCalendar.holidays)) return;
+  draftHolidayCalendar.holidays.splice(idx, 1);
+  renderHolidayCalendarSettings();
+};
+
+window.loadUaePublicHolidaysPreset = function() {
+  if (!draftHolidayCalendar) renderHolidayCalendarSettings();
+  const yr = new Date().getFullYear();
+  const uaePresets = [
+    { date: `${yr}-12-01`, name: 'UAE Commemoration Day' },
+    { date: `${yr}-12-02`, name: 'UAE National Day (Eid Al Etihad)' },
+    { date: `${yr}-12-03`, name: 'UAE National Day Holiday' },
+    { date: `${yr + 1}-01-01`, name: "New Year's Day" }
+  ];
+  let added = 0;
+  uaePresets.forEach((p, idx) => {
+    if (!draftHolidayCalendar.holidays.some(h => h.date === p.date)) {
+      draftHolidayCalendar.holidays.push({ id: `uae_${Date.now()}_${idx}`, date: p.date, name: p.name });
+      added++;
+    }
+  });
+  renderHolidayCalendarSettings();
+  showToast(added > 0 ? `Loaded ${added} UAE holiday date(s). Click "Save Calendar Settings" to apply.` : 'UAE preset holidays are already in your list.');
+};
+
+window.saveHolidayCalendarSettings = async function() {
+  const btn = document.getElementById('save-holiday-cal-btn');
+  if (!draftHolidayCalendar) renderHolidayCalendarSettings();
+  const weekly_off_days = Array.from(document.querySelectorAll('input[name="cal_off_day"]:checked')).map(cb => Number(cb.value));
+  const payload = {
+    weekly_off_days,
+    pause_recurring_tasks: Boolean(document.getElementById('cal-pause-rec-tasks')?.checked),
+    pause_task_reminders: Boolean(document.getElementById('cal-pause-reminders')?.checked),
+    pause_recurring_meetings: Boolean(document.getElementById('cal-pause-rec-meetings')?.checked),
+    holidays: draftHolidayCalendar.holidays || []
+  };
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+  try {
+    const res = await apiFetch('/api/settings/holiday-calendar', {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    });
+    draftHolidayCalendar = res.config;
+    showToast(res.message || 'Company Calendar saved!');
+    await loadAllData();
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Calendar Settings'; }
+  }
+};
+
 function renderSettingsTab() {
+  draftHolidayCalendar = null;
+  renderHolidayCalendarSettings();
   const canCreateStatus = userHasAnyPermission('create_statuses');
   const canDeleteStatus = userHasAnyPermission('delete_statuses');
   const canCreatePriority = userHasAnyPermission('create_priorities');
