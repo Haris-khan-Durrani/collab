@@ -12,13 +12,15 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'taskify_ceo_executive_super_secret_key_2026';
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Dubai'; // UAE Standard Time (GMT+04:00)
+const APP_TZ_OFFSET = process.env.APP_TZ_OFFSET || '+04:00';
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Database Connection Pool
+// Database Connection Pool (Pinned to UAE +04:00 so NOW() & CURDATE() match UAE time on any cloud VPS)
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || 3306),
@@ -28,7 +30,12 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 15,
   queueLimit: 0,
-  dateStrings: true
+  dateStrings: true,
+  timezone: APP_TZ_OFFSET
+});
+
+pool.on('connection', (conn) => {
+  conn.query(`SET time_zone = '${APP_TZ_OFFSET}'`, () => {});
 });
 
 // In-Memory Cron & Email Telemetry State
@@ -134,7 +141,7 @@ async function permanentlyPurgeWorkspace(wsId) {
 
 function addCronLog(type, message) {
   cronState.recentLogs.unshift({
-    time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    time: getLocalDateTimeStr(),
     type,
     message
   });
@@ -331,24 +338,43 @@ async function sendEmailToGuests(guestsList = [], { subject, html }) {
   return count;
 }
 
+// Timezone-locked UAE (Asia/Dubai, GMT+04:00) Date & Time Formatters
+function getUaeDateParts(d = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(d);
+  const map = {};
+  parts.forEach(p => { map[p.type] = p.value; });
+  const hh = map.hour === '24' ? '00' : map.hour;
+  return { y: map.year, m: map.month, day: map.day, hh, mm: map.minute, ss: map.second };
+}
+
 function getLocalDateStr(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const p = getUaeDateParts(d);
+  return `${p.y}-${p.m}-${p.day}`;
+}
+
+function getLocalTimeStr(d = new Date()) {
+  const p = getUaeDateParts(d);
+  return `${p.hh}:${p.mm}:${p.ss}`;
 }
 
 function getLocalDateTimeStr(d = new Date()) {
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  return `${getLocalDateStr(d)} ${hh}:${mm}:${ss}`;
+  const p = getUaeDateParts(d);
+  return `${p.y}-${p.m}-${p.day} ${p.hh}:${p.mm}:${p.ss}`;
 }
 
 function addDaysToDateStr(dateStr, days) {
-  const dt = new Date(dateStr + 'T12:00:00');
-  dt.setDate(dt.getDate() + days);
-  return getLocalDateStr(dt);
+  const dt = new Date(String(dateStr).substring(0, 10) + 'T12:00:00Z');
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().substring(0, 10);
 }
 
 // Compute the Next Upcoming Date & Time Slot for a Recurring Rule
@@ -536,9 +562,10 @@ async function runAutomatedCronJobs(isManual = false) {
     }
 
     // ----------------------------------------------------
-    // JOB 2: PROCESS TASK REMINDERS (reminders table)
+    // JOB 2: PROCESS TASK REMINDERS (reminders table — UAE Asia/Dubai Time)
     // ----------------------------------------------------
-    const currentTimeStr = now.toTimeString().substring(0, 8);
+    const currentTimeStr = getLocalTimeStr(now);
+    const nowUaeDateTimeStr = getLocalDateTimeStr(now);
     const [dueReminders] = await pool.query(`
       SELECT r.*, t.title AS task_title, t.workspace_id, t.due_date, t.created_by
       FROM reminders r
@@ -546,14 +573,14 @@ async function runAutomatedCronJobs(isManual = false) {
       WHERE r.is_active = 1
         AND r.remindable_type LIKE '%Task'
         AND (r.time_of_day IS NULL OR r.time_of_day <= ?)
-        AND (r.last_sent_at IS NULL OR DATE(r.last_sent_at) < CURDATE())
-    `, [currentTimeStr]);
+        AND (r.last_sent_at IS NULL OR DATE(r.last_sent_at) < ?)
+    `, [currentTimeStr, todayStr]);
 
     for (const rem of dueReminders) {
       const [assignees] = await pool.query('SELECT user_id FROM task_user WHERE task_id = ?', [rem.remindable_id]);
       const assigneeIds = assignees.map(a => a.user_id);
 
-      await pool.query('UPDATE reminders SET last_sent_at = NOW(), updated_at = NOW() WHERE id = ?', [rem.id]);
+      await pool.query('UPDATE reminders SET last_sent_at = ?, updated_at = NOW() WHERE id = ?', [nowUaeDateTimeStr, rem.id]);
 
       if (assigneeIds.length > 0) {
         await notifyUsersAndSendEmail({
@@ -702,14 +729,15 @@ async function runAutomatedCronJobs(isManual = false) {
     }
 
     // ----------------------------------------------------
-    // JOB 4: 1-DAY-BEFORE ADVANCE MEETING REMINDER (Team Members & Guests)
+    // JOB 4: 1-DAY-BEFORE ADVANCE MEETING REMINDER (Team Members & Guests — UAE Time)
     // Automatically emails & notifies team members and external guests 1 day before a scheduled meeting
     // ----------------------------------------------------
+    const tomorrowStr = addDaysToDateStr(todayStr, 1);
     const [tomorrowMeetings] = await pool.query(`
       SELECT m.*
       FROM meetings m
-      WHERE DATE(m.start_date_time) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)
-    `);
+      WHERE DATE(m.start_date_time) = ?
+    `, [tomorrowStr]);
 
     for (const tm of tomorrowMeetings) {
       const rec = govStore.records[tm.id] || {};
@@ -781,14 +809,14 @@ async function runAutomatedCronJobs(isManual = false) {
     }
 
     // ----------------------------------------------------
-    // JOB 5: UPCOMING TODAY'S MEETINGS ALERT (Within 30 mins)
+    // JOB 5: UPCOMING TODAY'S MEETINGS ALERT (Within 30 mins — UAE Time)
     // ----------------------------------------------------
     const [upcomingMeetings] = await pool.query(`
       SELECT m.*
       FROM meetings m
-      WHERE DATE(m.start_date_time) = CURDATE()
-        AND TIMESTAMPDIFF(MINUTE, NOW(), m.start_date_time) BETWEEN -5 AND 30
-    `);
+      WHERE DATE(m.start_date_time) = ?
+        AND TIMESTAMPDIFF(MINUTE, ?, m.start_date_time) BETWEEN -5 AND 30
+    `, [todayStr, nowUaeDateTimeStr]);
 
     for (const mt of upcomingMeetings) {
       const alertKey = `meeting_${mt.id}_${todayStr}`;
