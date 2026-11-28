@@ -1805,6 +1805,71 @@ window.openPostponeModalFromMom = function() {
   openPostponeMeetingModal(id);
 };
 
+window.openEditMeetingFromMom = function() {
+  const id = Number(document.getElementById('mom-meeting-id').value);
+  closeMeetingMomModal();
+  openMeetingModal('team', id);
+};
+
+window.toggleMomManualNotifyPanel = function() {
+  const panel = document.getElementById('mom-manual-notify-panel');
+  const listEl = document.getElementById('mom-notify-users-list');
+  if (!panel || !listEl) return;
+
+  const isOpening = panel.classList.contains('hidden');
+  if (!isOpening) {
+    panel.classList.add('hidden');
+    return;
+  }
+
+  const id = Number(document.getElementById('mom-meeting-id').value);
+  const m = state.meetings.find(x => Number(x.id) === id);
+  const attendees = (m && Array.isArray(m.users) && m.users.length)
+    ? m.users
+    : state.meta.users;
+
+  listEl.innerHTML = attendees.map(u => `
+    <label class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-800 cursor-pointer text-[11px] font-semibold">
+      <input type="checkbox" name="mom_notify_uid" value="${u.id}" checked class="rounded text-blue-600" />
+      <span>${escapeHtml(u.first_name)} ${escapeHtml(u.last_name || '')}</span>
+    </label>
+  `).join('');
+
+  const noteInput = document.getElementById('mom-notify-custom-note');
+  if (noteInput) noteInput.value = '';
+  panel.classList.remove('hidden');
+};
+
+window.toggleAllMomNotifyUsers = function(checked) {
+  document.querySelectorAll('input[name="mom_notify_uid"]').forEach(cb => {
+    cb.checked = Boolean(checked);
+  });
+};
+
+window.sendManualMeetingNotification = async function() {
+  const id = Number(document.getElementById('mom-meeting-id').value);
+  const user_ids = Array.from(document.querySelectorAll('input[name="mom_notify_uid"]:checked')).map(cb => Number(cb.value));
+  if (user_ids.length === 0) {
+    showToast('Please select at least one participant to notify.', 'error');
+    return;
+  }
+  const custom_note = (document.getElementById('mom-notify-custom-note')?.value || '').trim();
+  const btn = document.getElementById('mom-notify-send-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    const res = await apiFetch(`/api/meetings/${id}/notify`, {
+      method: 'POST',
+      body: JSON.stringify({ user_ids, custom_note })
+    });
+    showToast(res.message || 'Participants notified!');
+    document.getElementById('mom-manual-notify-panel')?.classList.add('hidden');
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📨 Send Notification Now'; }
+  }
+};
+
 window.applyPostponeOffset = function(addDays, addHours) {
   const dEl = document.getElementById('postpone-new-date');
   const sEl = document.getElementById('postpone-new-start');
@@ -2130,28 +2195,73 @@ function renderMeetingsTable() {
   }).join('');
 }
 
-window.openMeetingModal = function(preselectedScope = 'team') {
+window.openMeetingModal = function(preselectedScope = 'team', editMeetingId = null) {
+  const m = editMeetingId ? state.meetings.find(x => Number(x.id) === Number(editMeetingId)) : null;
   document.getElementById('meeting-modal').classList.remove('hidden');
-  document.getElementById('mt-title').value = '';
-  document.getElementById('mt-agenda-notes').value = '';
-  document.getElementById('mt-date').value = new Date().toISOString().substring(0, 10);
-  document.getElementById('mt-start-time').value = '10:00';
-  document.getElementById('mt-end-time').value = '11:00';
-  document.getElementById('mt-send-email').checked = true;
+
+  const editIdEl = document.getElementById('mt-edit-id');
+  const titleHeading = document.getElementById('mt-modal-title');
+  const submitBtn = document.getElementById('mt-modal-submit');
+  const editNotifyBox = document.getElementById('mt-edit-notify-box');
+  const createNotifyWrap = document.getElementById('mt-create-notify-wrap');
+  const seriesWrap = document.getElementById('mt-edit-series-wrap');
 
   document.getElementById('mt-workspace').innerHTML = state.meta.workspaces.map(w =>
     `<option value="${w.id}">${w.title}</option>`
   ).join('');
-  if (state.selectedWorkspace !== 'all') {
-    document.getElementById('mt-workspace').value = state.selectedWorkspace;
-  }
 
-  setMeetingRecurrence('none');
-  setMeetingScope(preselectedScope);
-  draftMeetingGuests = [];
-  renderDraftGuestPills();
-  renderMeetingClientCheckboxes();
-  updateMeetingNextSlotPreview();
+  if (m) {
+    if (editIdEl) editIdEl.value = m.id;
+    if (titleHeading) titleHeading.textContent = `Edit Meeting (#${m.id}) — Add Users or Update Details`;
+    if (submitBtn) submitBtn.textContent = 'Save Changes';
+    if (editNotifyBox) editNotifyBox.classList.remove('hidden');
+    if (createNotifyWrap) createNotifyWrap.classList.add('hidden');
+    if (seriesWrap) seriesWrap.classList.toggle('hidden', !m.recurring_rule_id);
+    const silentRadio = document.querySelector('input[name="mt_edit_notify_mode"][value="none"]');
+    if (silentRadio) silentRadio.checked = true;
+
+    document.getElementById('mt-title').value = m.title || '';
+    document.getElementById('mt-agenda-notes').value = m.agenda_notes || '';
+    document.getElementById('mt-date').value = String(m.start_date_time || '').substring(0, 10) || localDateStr(new Date());
+    document.getElementById('mt-start-time').value = String(m.start_date_time || '').substring(11, 16) || '10:00';
+    document.getElementById('mt-end-time').value = String(m.end_date_time || '').substring(11, 16) || '11:00';
+    if (m.workspace_id) document.getElementById('mt-workspace').value = m.workspace_id;
+
+    setMeetingRecurrence(m.is_recurring && m.recurring_frequency ? m.recurring_frequency : 'none');
+    setMeetingScope(m.scope || 'team');
+    const existingUserIds = (m.users || []).map(u => Number(u.id));
+    renderAvatarChipCheckboxes('mt-users-checkboxes', 'mt_user_ids', existingUserIds);
+
+    draftMeetingGuests = Array.isArray(m.guests) ? JSON.parse(JSON.stringify(m.guests)) : [];
+    renderDraftGuestPills();
+    renderMeetingClientCheckboxes();
+    updateMeetingNextSlotPreview();
+  } else {
+    if (editIdEl) editIdEl.value = '';
+    if (titleHeading) titleHeading.textContent = 'Schedule Meeting / Executive Agenda';
+    if (submitBtn) submitBtn.textContent = 'Schedule & Notify';
+    if (editNotifyBox) editNotifyBox.classList.add('hidden');
+    if (createNotifyWrap) createNotifyWrap.classList.remove('hidden');
+    if (seriesWrap) seriesWrap.classList.add('hidden');
+
+    document.getElementById('mt-title').value = '';
+    document.getElementById('mt-agenda-notes').value = '';
+    document.getElementById('mt-date').value = localDateStr(new Date());
+    document.getElementById('mt-start-time').value = '10:00';
+    document.getElementById('mt-end-time').value = '11:00';
+    document.getElementById('mt-send-email').checked = true;
+
+    if (state.selectedWorkspace !== 'all') {
+      document.getElementById('mt-workspace').value = state.selectedWorkspace;
+    }
+
+    setMeetingRecurrence('none');
+    setMeetingScope(preselectedScope);
+    draftMeetingGuests = [];
+    renderDraftGuestPills();
+    renderMeetingClientCheckboxes();
+    updateMeetingNextSlotPreview();
+  }
 };
 
 window.setMeetingScope = function(scope) {
@@ -5065,11 +5175,15 @@ function bindEvents() {
     }
   });
 
-  // Meeting Form (Team or Individual 1-on-1 + Auto-Recurring Schedule)
+  // Meeting Form (Create OR Edit with Silent/New-Only/All Notify Control)
   document.getElementById('meeting-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const editId = document.getElementById('mt-edit-id')?.value;
     const user_ids = Array.from(document.querySelectorAll('input[name="mt_user_ids"]:checked')).map(cb => Number(cb.value));
     const recFreq = document.getElementById('mt-recurring-freq').value;
+    const notify_mode = document.querySelector('input[name="mt_edit_notify_mode"]:checked')?.value || 'none';
+    const update_recurring_series = Boolean(document.getElementById('mt-edit-update-series')?.checked);
+
     const payload = {
       title: document.getElementById('mt-title').value,
       workspace_id: Number(document.getElementById('mt-workspace').value),
@@ -5081,14 +5195,21 @@ function bindEvents() {
       recurring_frequency: recFreq !== 'none' ? recFreq : null,
       agenda_notes: document.getElementById('mt-agenda-notes').value || '',
       send_email_notification: document.getElementById('mt-send-email').checked,
+      notify_mode,
+      update_recurring_series,
       client_ids: Array.from(document.querySelectorAll('input[name="mt_client_ids"]:checked')).map(cb => Number(cb.value)),
       guests: draftMeetingGuests,
       generate_future_weeks: 4,
       user_ids
     };
     try {
-      const res = await apiFetch('/api/meetings', { method: 'POST', body: JSON.stringify(payload) });
-      showToast(res.message || 'Meeting scheduled & email invitations sent');
+      if (editId) {
+        const res = await apiFetch(`/api/meetings/${editId}`, { method: 'PUT', body: JSON.stringify(payload) });
+        showToast(res.message || 'Meeting updated');
+      } else {
+        const res = await apiFetch('/api/meetings', { method: 'POST', body: JSON.stringify(payload) });
+        showToast(res.message || 'Meeting scheduled & email invitations sent');
+      }
       closeMeetingModal();
       await loadAllData();
       await loadNotifications();

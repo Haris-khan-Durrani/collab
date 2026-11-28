@@ -2247,8 +2247,8 @@
             <i data-lucide="calendar-plus" class="w-4 h-4"></i>
           </div>
           <div>
-            <h3 class="text-sm font-bold text-slate-900 dark:text-white leading-tight">Schedule Meeting / Executive Agenda</h3>
-            <p class="text-[11px] text-slate-500">Schedule a Team or Individual 1-on-1 session with optional auto-recurring email alerts</p>
+            <h3 id="mt-modal-title" class="text-sm font-bold text-slate-900 dark:text-white leading-tight">Schedule Meeting / Executive Agenda</h3>
+            <p class="text-[11px] text-slate-500">Schedule or edit a Team / 1-on-1 session, add attendees, and control notifications</p>
           </div>
         </div>
         <button onclick="closeMeetingModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700">
@@ -2257,6 +2257,7 @@
       </div>
 
       <form id="meeting-form" class="p-6 overflow-y-auto space-y-5 custom-scrollbar text-xs">
+        <input type="hidden" id="mt-edit-id" />
         <input type="hidden" id="mt-scope" value="team" />
         <input type="hidden" id="mt-recurring-freq" value="none" />
 
@@ -2397,15 +2398,38 @@
             class="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-600"></textarea>
         </div>
 
+        <!-- Edit-Mode Notification Control (Silent Save vs Notify New vs Notify All) -->
+        <div id="mt-edit-notify-box" class="hidden p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-2.5">
+          <div class="font-bold text-slate-800 dark:text-slate-200">Notification Preference for This Edit</div>
+          <div class="flex flex-wrap gap-2">
+            <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 cursor-pointer font-semibold">
+              <input type="radio" name="mt_edit_notify_mode" value="none" checked class="text-emerald-600" />
+              <span>🔕 Save silently (Don't notify anyone)</span>
+            </label>
+            <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 cursor-pointer font-semibold">
+              <input type="radio" name="mt_edit_notify_mode" value="new_only" class="text-emerald-600" />
+              <span>✨ Notify ONLY newly added users</span>
+            </label>
+            <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 cursor-pointer font-semibold">
+              <input type="radio" name="mt_edit_notify_mode" value="all" class="text-emerald-600" />
+              <span>📣 Notify ALL attendees</span>
+            </label>
+          </div>
+          <label id="mt-edit-series-wrap" class="hidden flex items-center gap-2 pt-1 text-blue-700 dark:text-blue-300 font-semibold cursor-pointer">
+            <input type="checkbox" id="mt-edit-update-series" checked class="rounded text-blue-600" />
+            <span>🔁 Also apply added users &amp; changes to future meetings in this recurring series</span>
+          </label>
+        </div>
+
         <!-- Footer -->
         <div class="pt-3 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
-          <label class="flex items-center gap-2 cursor-pointer font-semibold text-emerald-600 dark:text-emerald-400">
+          <label id="mt-create-notify-wrap" class="flex items-center gap-2 cursor-pointer font-semibold text-emerald-600 dark:text-emerald-400">
             <input type="checkbox" id="mt-send-email" checked class="rounded text-emerald-600" />
             <span>✉ Auto-Email Invitation & Attendance Requirement</span>
           </label>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 ml-auto">
             <button type="button" onclick="closeMeetingModal()" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-semibold">Cancel</button>
-            <button type="submit" class="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-600/20 transition">
+            <button type="submit" id="mt-modal-submit" class="px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md shadow-emerald-600/20 transition">
               Schedule & Notify
             </button>
           </div>
@@ -2453,7 +2477,15 @@
               </h4>
               <p class="text-[11px] text-slate-500">Tap Present, Late, Excused, or Absent for each invited team member — feeds directly into the End-of-Month Scorecard</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" onclick="openEditMeetingFromMom()"
+                class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[11px] font-bold">
+                ✏ Edit Meeting / Add Users
+              </button>
+              <button type="button" onclick="toggleMomManualNotifyPanel()"
+                class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold">
+                🔔 Notify Users Manually
+              </button>
               <button type="button" onclick="openPostponeModalFromMom()"
                 class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold">
                 ⏳ Postpone / Reschedule Meeting
@@ -2461,6 +2493,30 @@
               <button type="button" onclick="markAllMeetingAttendance('present')"
                 class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold">
                 ✓ Mark All Present
+              </button>
+            </div>
+          </div>
+
+          <!-- INLINE MANUAL NOTIFY PANEL (Ping selected participants for this meeting without leaving the window) -->
+          <div id="mom-manual-notify-panel" class="hidden p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 space-y-2.5">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div class="font-bold text-blue-900 dark:text-blue-200 text-xs">🔔 Send Manual Meeting Notification (Email + In-App + WhatsApp)</div>
+                <div class="text-[10px] text-blue-700/80 dark:text-blue-300/80">Choose exactly which participants to notify for this meeting</div>
+              </div>
+              <div class="flex items-center gap-2 text-[11px]">
+                <button type="button" onclick="toggleAllMomNotifyUsers(true)" class="text-blue-700 dark:text-blue-300 font-semibold hover:underline">Select All</button>
+                <span class="text-blue-300">|</span>
+                <button type="button" onclick="toggleAllMomNotifyUsers(false)" class="text-slate-500 font-semibold hover:underline">Clear</button>
+              </div>
+            </div>
+            <div id="mom-notify-users-list" class="flex flex-wrap gap-1.5"></div>
+            <div class="flex flex-wrap items-center gap-2">
+              <input type="text" id="mom-notify-custom-note" placeholder="Optional note (e.g. Please join in 5 mins at 7th floor)..."
+                class="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-blue-300 dark:border-blue-700 text-xs" />
+              <button type="button" id="mom-notify-send-btn" onclick="sendManualMeetingNotification()"
+                class="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs">
+                📨 Send Notification Now
               </button>
             </div>
           </div>

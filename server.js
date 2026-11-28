@@ -4080,6 +4080,258 @@ app.put('/api/meetings/:id/postpone', authMiddleware, async (req, res) => {
   }
 });
 
+// Edit Existing Meeting (add/remove attendees, update title/date/time/agenda, optional silent save or notify new/all)
+app.put('/api/meetings/:id', authMiddleware, async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const meetingId = Number(req.params.id);
+    const [mRows] = await conn.query('SELECT * FROM meetings WHERE id = ? LIMIT 1', [meetingId]);
+    if (!mRows.length) {
+      await conn.rollback();
+      return res.status(404).json({ error: true, message: 'Meeting not found' });
+    }
+    const existing = mRows[0];
+
+    const {
+      title,
+      workspace_id,
+      meeting_date,
+      start_time,
+      end_time,
+      scope,
+      agenda_notes,
+      user_ids,
+      client_ids,
+      guests,
+      notify_mode = 'none', // 'none' | 'new_only' | 'all'
+      update_recurring_series = false
+    } = req.body;
+
+    const finalTitle = (title && title.trim()) ? title.trim() : existing.title;
+    const finalWsId = workspace_id ? Number(workspace_id) : existing.workspace_id;
+    const origDate = String(existing.start_date_time).substring(0, 10);
+    const origStart = String(existing.start_date_time).substring(11, 16);
+    const origEnd = String(existing.end_date_time).substring(11, 16);
+    const finalDate = meeting_date || origDate;
+    const finalStart = start_time || origStart;
+    const finalEnd = end_time || origEnd;
+    const startDateTime = `${finalDate} ${finalStart.length === 5 ? finalStart + ':00' : finalStart}`;
+    const endDateTime = `${finalDate} ${finalEnd.length === 5 ? finalEnd + ':00' : finalEnd}`;
+
+    await conn.query(
+      'UPDATE meetings SET workspace_id = ?, title = ?, start_date_time = ?, end_date_time = ?, updated_at = NOW() WHERE id = ?',
+      [finalWsId, finalTitle, startDateTime, endDateTime, meetingId]
+    );
+
+    // Track previous attendees so we know who is newly added
+    const [prevUserRows] = await conn.query('SELECT user_id FROM meeting_user WHERE meeting_id = ?', [meetingId]);
+    const prevUserIds = prevUserRows.map(r => Number(r.user_id));
+
+    let finalUserIds = prevUserIds;
+    if (Array.isArray(user_ids)) {
+      finalUserIds = [...new Set(user_ids.map(Number).filter(Boolean))];
+      await conn.query('DELETE FROM meeting_user WHERE meeting_id = ?', [meetingId]);
+      if (finalUserIds.length > 0) {
+        await conn.query('INSERT INTO meeting_user (meeting_id, user_id) VALUES ?', [finalUserIds.map(uid => [meetingId, uid])]);
+      }
+    }
+    const newlyAddedUserIds = finalUserIds.filter(uid => !prevUserIds.includes(uid));
+
+    if (Array.isArray(client_ids)) {
+      const finalClientIds = [...new Set(client_ids.map(Number).filter(Boolean))];
+      await conn.query('DELETE FROM client_meeting WHERE meeting_id = ?', [meetingId]);
+      if (finalClientIds.length > 0) {
+        await conn.query('INSERT INTO client_meeting (meeting_id, client_id) VALUES ?', [finalClientIds.map(cid => [meetingId, cid])]);
+      }
+    }
+
+    await conn.commit();
+
+    // Update governance record (preserving existing attendance & MoM)
+    const govStore = await getMeetingGovernanceStore();
+    const rec = govStore.records[meetingId] || { meeting_id: meetingId, status: 'scheduled', attendance: {} };
+    const existingAtt = rec.attendance || {};
+    const nextAtt = {};
+    finalUserIds.forEach(uid => {
+      nextAtt[uid] = existingAtt[uid] || { status: 'pending', note: '', updated_at: null };
+    });
+
+    const prevGuests = Array.isArray(rec.guests) ? rec.guests : [];
+    const finalGuests = Array.isArray(guests)
+      ? guests.filter(g => g && g.name && String(g.name).trim()).map((g, idx) => ({
+          id: g.id || `g_${Date.now()}_${idx}`,
+          name: String(g.name).trim(),
+          email: g.email ? String(g.email).trim() : '',
+          company: g.company ? String(g.company).trim() : '',
+          type: g.type || 'guest'
+        }))
+      : prevGuests;
+
+    const prevGuestIds = prevGuests.map(g => g.id);
+    const newlyAddedGuests = finalGuests.filter(g => !prevGuestIds.includes(g.id));
+    const existingGuestAtt = rec.guest_attendance || {};
+    const nextGuestAtt = {};
+    finalGuests.forEach(g => {
+      nextGuestAtt[g.id] = existingGuestAtt[g.id] || { status: 'pending', note: '', updated_at: null };
+    });
+
+    govStore.records[meetingId] = {
+      ...rec,
+      meeting_id: meetingId,
+      scope: scope || rec.scope || (finalUserIds.length <= 2 ? 'individual' : 'team'),
+      agenda_notes: agenda_notes !== undefined ? String(agenda_notes) : (rec.agenda_notes || ''),
+      attendance: nextAtt,
+      guests: finalGuests,
+      guest_attendance: nextGuestAtt
+    };
+
+    // Optionally propagate updated attendees/title/times to future occurrences in the recurring series
+    if (update_recurring_series && rec.recurring_rule_id) {
+      const rule = (govStore.recurringRules || []).find(r => r.id === rec.recurring_rule_id);
+      if (rule) {
+        rule.title = finalTitle;
+        rule.start_time = finalStart.substring(0, 5);
+        rule.end_time = finalEnd.substring(0, 5);
+        rule.user_ids = finalUserIds;
+        rule.guests = finalGuests;
+      }
+      // Also add newly added users to future scheduled meetings in this same series
+      if (newlyAddedUserIds.length > 0) {
+        const todayStr = getLocalDateStr();
+        for (const [mKey, rObj] of Object.entries(govStore.records)) {
+          const mid = Number(mKey);
+          if (mid !== meetingId && rObj.recurring_rule_id === rec.recurring_rule_id && rObj.status !== 'completed') {
+            const [fRow] = await pool.query('SELECT id FROM meetings WHERE id = ? AND DATE(start_date_time) >= ? LIMIT 1', [mid, todayStr]);
+            if (fRow.length) {
+              for (const uid of newlyAddedUserIds) {
+                const [exU] = await pool.query('SELECT 1 FROM meeting_user WHERE meeting_id = ? AND user_id = ? LIMIT 1', [mid, uid]);
+                if (!exU.length) {
+                  await pool.query('INSERT INTO meeting_user (meeting_id, user_id) VALUES (?, ?)', [mid, uid]);
+                }
+                rObj.attendance = rObj.attendance || {};
+                if (!rObj.attendance[uid]) rObj.attendance[uid] = { status: 'pending', note: '', updated_at: null };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    await saveMeetingGovernanceStore(govStore);
+
+    // Notification dispatch strictly honors `notify_mode` ('none' | 'new_only' | 'all')
+    const actorName = `${req.user.first_name} ${req.user.last_name}`.trim();
+    const targetNotifyUsers = notify_mode === 'all'
+      ? finalUserIds
+      : (notify_mode === 'new_only' ? newlyAddedUserIds : []);
+    const targetNotifyGuests = notify_mode === 'all'
+      ? finalGuests
+      : (notify_mode === 'new_only' ? newlyAddedGuests : []);
+
+    if (targetNotifyUsers.length > 0) {
+      await notifyUsersAndSendEmail({
+        workspace_id: finalWsId,
+        from_user_id: req.user.id,
+        type: 'meeting',
+        type_id: meetingId,
+        action: 'assigned',
+        title: `Meeting Updated: ${finalTitle}`,
+        message: `${actorName} ${notify_mode === 'new_only' ? 'added you to' : 'updated'} meeting "${finalTitle}" on ${finalDate} (${formatTime12h(finalStart)} – ${formatTime12h(finalEnd)}).`,
+        emailSubject: `📅 [Meeting ${notify_mode === 'new_only' ? 'Invitation' : 'Updated'}] ${finalTitle} — ${finalDate} (${formatTime12h(finalStart)})`,
+        emailHtml: `
+          <p><strong>${actorName}</strong> ${notify_mode === 'new_only' ? 'added you to a scheduled meeting' : 'updated the details for a scheduled meeting'}:</p>
+          <div style="background: #f0fdf4; padding: 16px; border-left: 4px solid #059669; margin: 14px 0;">
+            <p style="margin: 0 0 6px 0;"><strong>Meeting:</strong> ${finalTitle}</p>
+            <p style="margin: 0 0 6px 0;"><strong>Date &amp; Time:</strong> ${finalDate} (${formatTime12h(finalStart)} – ${formatTime12h(finalEnd)})</p>
+            ${agenda_notes ? `<p style="margin: 6px 0 0 0;"><strong>Agenda:</strong> ${agenda_notes}</p>` : ''}
+          </div>
+        `,
+        user_ids: targetNotifyUsers,
+        send_email: true
+      });
+    }
+
+    if (targetNotifyGuests.length > 0) {
+      await sendEmailToGuests(targetNotifyGuests, {
+        subject: `📅 [Meeting Invitation] ${finalTitle} — ${finalDate} (${formatTime12h(finalStart)})`,
+        html: `
+          <p><strong>${actorName}</strong> has invited you to a meeting:</p>
+          <div style="background: #f0fdf4; padding: 16px; border-left: 4px solid #059669; margin: 14px 0;">
+            <p style="margin: 0 0 6px 0;"><strong>Meeting:</strong> ${finalTitle}</p>
+            <p style="margin: 0;"><strong>Date &amp; Time:</strong> ${finalDate} (${formatTime12h(finalStart)} – ${formatTime12h(finalEnd)})</p>
+          </div>
+        `
+      });
+    }
+
+    const notifyLabel = notify_mode === 'none'
+      ? 'Saved silently (no notifications sent)'
+      : (notify_mode === 'new_only'
+        ? `Saved & notified ${targetNotifyUsers.length} newly added member(s)`
+        : `Saved & notified all ${targetNotifyUsers.length} attendee(s)`);
+
+    res.json({ error: false, message: notifyLabel, id: meetingId });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ error: true, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// Manually Notify Selected Attendees (Email + In-App + WhatsApp) for a Recent or Current Meeting
+app.post('/api/meetings/:id/notify', authMiddleware, async (req, res) => {
+  try {
+    const meetingId = Number(req.params.id);
+    const [mRows] = await pool.query('SELECT * FROM meetings WHERE id = ? LIMIT 1', [meetingId]);
+    if (!mRows.length) {
+      return res.status(404).json({ error: true, message: 'Meeting not found' });
+    }
+    const mt = mRows[0];
+    const { user_ids = [], custom_note = '' } = req.body;
+    const targetIds = [...new Set((Array.isArray(user_ids) ? user_ids : []).map(Number).filter(Boolean))];
+    if (targetIds.length === 0) {
+      return res.status(400).json({ error: true, message: 'Please select at least one participant to notify.' });
+    }
+
+    const mDate = String(mt.start_date_time).substring(0, 10);
+    const mStart = String(mt.start_date_time).substring(11, 16);
+    const mEnd = String(mt.end_date_time).substring(11, 16);
+    const actorName = `${req.user.first_name} ${req.user.last_name}`.trim();
+    const noteClean = String(custom_note || '').trim();
+
+    const result = await notifyUsersAndSendEmail({
+      workspace_id: mt.workspace_id,
+      from_user_id: req.user.id,
+      type: 'meeting',
+      type_id: meetingId,
+      action: 'starting_soon',
+      title: `Meeting Reminder: ${mt.title}`,
+      message: `${actorName} sent a meeting reminder for "${mt.title}" on ${mDate} (${formatTime12h(mStart)} – ${formatTime12h(mEnd)}).${noteClean ? ` Note: ${noteClean}` : ''}`,
+      emailSubject: `🔔 [Meeting Reminder] ${mt.title} — ${mDate} (${formatTime12h(mStart)})`,
+      emailHtml: `
+        <p><strong>${actorName}</strong> sent you a reminder for the following meeting:</p>
+        <div style="background: #eff6ff; padding: 16px; border-left: 4px solid #2563eb; margin: 14px 0;">
+          <p style="margin: 0 0 6px 0;"><strong>Meeting:</strong> ${mt.title}</p>
+          <p style="margin: 0 0 6px 0;"><strong>Date &amp; Time:</strong> ${mDate} (${formatTime12h(mStart)} – ${formatTime12h(mEnd)})</p>
+          ${noteClean ? `<p style="margin: 6px 0 0 0; color: #1d4ed8;"><strong>Message:</strong> ${noteClean}</p>` : ''}
+        </div>
+      `,
+      user_ids: targetIds,
+      send_email: true
+    });
+
+    res.json({
+      error: false,
+      message: `Notified ${result.notified} attendee(s) (Emails: ${result.emailed}${result.whatsapp ? `, WhatsApp: ${result.whatsapp}` : ''})`,
+      result
+    });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 // Save Meeting Attendance & Minutes of Meeting (MoM) + Optional Email Summary to Team/Management
 app.put('/api/meetings/:id/governance', authMiddleware, async (req, res) => {
   try {
