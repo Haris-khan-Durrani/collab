@@ -4678,7 +4678,10 @@ window.closeDiscussionModal = function() {
 window.loadEmailSettings = async function() {
   if (!state.user?.isStrictAdmin) return;
   try {
-    const res = await apiFetch('/api/email-settings');
+    const [res, waRes] = await Promise.all([
+      apiFetch('/api/email-settings'),
+      apiFetch('/api/whatsapp-settings').catch(() => null)
+    ]);
     const es = res.emailSettings || {};
     document.getElementById('es-smtp-host').value = es.smtp_host || '';
     document.getElementById('es-smtp-port').value = es.smtp_port || '587';
@@ -4687,8 +4690,47 @@ window.loadEmailSettings = async function() {
     document.getElementById('es-encryption').value = es.smtp_encryption || 'tls';
     document.getElementById('es-content-type').value = es.email_content_type || 'html';
     document.getElementById('es-test-recipient').value = state.user?.email || es.email || '';
+
+    if (waRes && waRes.whatsappSettings) {
+      const wa = waRes.whatsappSettings;
+      document.getElementById('wa-enabled').checked = Boolean(wa.enabled);
+      document.getElementById('wa-base-url').value = wa.base_url || 'https://wa.docman.ae';
+      document.getElementById('wa-session-id').value = wa.session_id || '';
+      document.getElementById('wa-api-key').value = wa.api_key || '';
+      document.getElementById('wa-country-code').value = wa.default_country_code || '971';
+      document.getElementById('wa-test-phone').value = state.user?.phone || '';
+      const pill = document.getElementById('wa-status-pill');
+      if (pill) {
+        pill.textContent = wa.enabled ? 'Active' : 'Disabled';
+        pill.className = wa.enabled
+          ? 'px-2.5 py-1 rounded bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold'
+          : 'px-2.5 py-1 rounded bg-slate-100 text-slate-600 border border-slate-200 text-xs font-semibold';
+      }
+    }
   } catch (err) {
     showToast(err.message, 'error');
+  }
+};
+
+window.sendTestWhatsApp = async function() {
+  const phone = (document.getElementById('wa-test-phone')?.value || '').trim();
+  if (!phone) {
+    showToast('Please enter a test WhatsApp phone number (e.g. 971551651588).', 'error');
+    return;
+  }
+  const btn = document.getElementById('wa-test-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    showToast('Sending test WhatsApp message via OpenWA...');
+    const res = await apiFetch('/api/whatsapp-settings/test', {
+      method: 'POST',
+      body: JSON.stringify({ phone })
+    });
+    showToast(res.message);
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '💬 Send Test WhatsApp'; }
   }
 };
 
@@ -5318,6 +5360,28 @@ function bindEvents() {
         body: JSON.stringify(payload)
       });
       showToast(res.message);
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // OpenWA WhatsApp Settings Form
+  document.getElementById('whatsapp-settings-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      enabled: document.getElementById('wa-enabled').checked,
+      base_url: document.getElementById('wa-base-url').value.trim(),
+      session_id: document.getElementById('wa-session-id').value.trim(),
+      api_key: document.getElementById('wa-api-key').value.trim(),
+      default_country_code: document.getElementById('wa-country-code').value.trim() || '971'
+    };
+    try {
+      const res = await apiFetch('/api/whatsapp-settings', {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      showToast(res.message);
+      await loadEmailSettings();
     } catch (err) {
       showToast(err.message, 'error');
     }

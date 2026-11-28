@@ -46,6 +46,7 @@ const cronState = {
   remindersSent: 0,
   meetingAlertsSent: 0,
   emailsDispatched: 0,
+  whatsappDispatched: 0,
   recentLogs: [],
   sentMeetingAlertKeys: new Set()
 };
@@ -190,6 +191,140 @@ function advanceToWorkingDay(dateStr, calCfg) {
     cur = addDaysToDateStr(cur, 1);
   }
   return cur;
+}
+
+// ==========================================
+// OPENWA WHATSAPP NOTIFICATION ENGINE
+// Stored in `settings` (variable = 'ceo_openwa_settings')
+// ==========================================
+async function getOpenWaSettings() {
+  const defaults = {
+    enabled: false,
+    base_url: 'https://wa.docman.ae',
+    session_id: '',
+    api_key: '',
+    default_country_code: '971'
+  };
+  try {
+    const [rows] = await pool.query("SELECT value FROM settings WHERE variable = 'ceo_openwa_settings' LIMIT 1");
+    if (!rows.length || !rows[0].value) return defaults;
+    const parsed = JSON.parse(rows[0].value);
+    return {
+      enabled: Boolean(parsed.enabled),
+      base_url: String(parsed.base_url || 'https://wa.docman.ae').trim(),
+      session_id: String(parsed.session_id || '').trim(),
+      api_key: String(parsed.api_key || '').trim(),
+      default_country_code: String(parsed.default_country_code || '971').replace(/\D/g, '') || '971'
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+async function saveOpenWaSettings(input) {
+  const current = await getOpenWaSettings();
+  const incomingKey = input.api_key !== undefined ? String(input.api_key).trim() : '';
+  const finalApiKey = (!incomingKey || incomingKey.startsWith('••••')) ? current.api_key : incomingKey;
+  const clean = {
+    enabled: Boolean(input.enabled),
+    base_url: String(input.base_url || 'https://wa.docman.ae').trim(),
+    session_id: String(input.session_id || '').trim(),
+    api_key: finalApiKey,
+    default_country_code: String(input.default_country_code || '971').replace(/\D/g, '') || '971'
+  };
+  const jsonStr = JSON.stringify(clean);
+  const [rows] = await pool.query("SELECT id FROM settings WHERE variable = 'ceo_openwa_settings' LIMIT 1");
+  if (rows.length) {
+    await pool.query("UPDATE settings SET value = ?, updated_at = NOW() WHERE variable = 'ceo_openwa_settings'", [jsonStr]);
+  } else {
+    await pool.query("INSERT INTO settings (variable, value, created_at, updated_at) VALUES ('ceo_openwa_settings', ?, NOW(), NOW())", [jsonStr]);
+  }
+  return clean;
+}
+
+function formatWhatsAppChatId(phone, defaultCountryCode = '971') {
+  if (!phone) return null;
+  const raw = String(phone).trim();
+  if (!raw) return null;
+  if (raw.includes('@c.us') || raw.includes('@g.us')) return raw;
+  let digits = raw.replace(/\D/g, '');
+  if (!digits || digits.length < 7) return null;
+  const cc = String(defaultCountryCode || '971').replace(/\D/g, '');
+  if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+  } else if (digits.startsWith('0') && cc) {
+    digits = cc + digits.slice(1);
+  } else if (cc === '971' && digits.length === 9 && digits.startsWith('5')) {
+    digits = '971' + digits;
+  }
+  return `${digits}@c.us`;
+}
+
+function resolveOpenWaSendTextUrl(baseUrl, sessionId) {
+  let cleanBase = String(baseUrl || 'https://wa.docman.ae').trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(cleanBase)) cleanBase = `https://${cleanBase}`;
+  if (cleanBase.includes('/messages/send-text')) {
+    return cleanBase.replace(/\{sessionId\}/gi, encodeURIComponent(sessionId || ''));
+  }
+  return `${cleanBase}/api/sessions/${encodeURIComponent(sessionId)}/messages/send-text`;
+}
+
+function stripHtmlForWhatsApp(htmlStr) {
+  return String(htmlStr || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function sendOpenWaText({ phone, text, idempotencyKey = null, cfgOverride = null }) {
+  const cfg = cfgOverride || await getOpenWaSettings();
+  if (!cfg.base_url || !cfg.session_id || !cfg.api_key) {
+    return { ok: false, error: 'OpenWA Endpoint URL, Session ID, and API Key are required.' };
+  }
+  const chatId = formatWhatsAppChatId(phone, cfg.default_country_code);
+  if (!chatId) {
+    return { ok: false, error: `Invalid or missing phone number (${phone || 'empty'})` };
+  }
+
+  const endpoint = resolveOpenWaSendTextUrl(cfg.base_url, cfg.session_id);
+  const headers = {
+    'accept': '*/*',
+    'Content-Type': 'application/json',
+    'X-API-Key': cfg.api_key
+  };
+  if (idempotencyKey) {
+    headers['Idempotency-Key'] = String(idempotencyKey).slice(0, 200);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ chatId, text: String(text || '') }),
+      signal: controller.signal
+    });
+    const rawText = await resp.text();
+    let data = {};
+    try { data = JSON.parse(rawText); } catch { data = { raw: rawText }; }
+    if (resp.ok) {
+      return { ok: true, status: resp.status, chatId, messageId: data.messageId || null, data };
+    }
+    const errMsg = data.message || data.error || `HTTP ${resp.status}`;
+    return { ok: false, status: resp.status, chatId, error: Array.isArray(errMsg) ? errMsg.join(', ') : String(errMsg) };
+  } catch (err) {
+    return { ok: false, chatId, error: err.name === 'AbortError' ? 'OpenWA request timed out (12s)' : err.message };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function getHeldWorkspaceIds() {
@@ -339,14 +474,23 @@ async function notifyUsersAndSendEmail({
     console.warn('In-app notification insert warning:', e.message);
   }
 
-  // 2. Dispatch Automatic Emails using Laravel's SMTP settings
+  // 2. Dispatch Automatic Emails & WhatsApp (OpenWA) using user profile email & phone
+  let whatsappCount = 0;
   if (send_email) {
+    let recipients = [];
     try {
-      const [recipients] = await pool.query(
-        'SELECT id, first_name, last_name, email FROM users WHERE id IN (?) AND status = 1',
+      const [rows] = await pool.query(
+        'SELECT id, first_name, last_name, email, phone FROM users WHERE id IN (?) AND status = 1',
         [uniqueIds]
       );
-      if (recipients.length > 0) {
+      recipients = rows;
+    } catch (recErr) {
+      console.warn('Recipient lookup error:', recErr.message);
+    }
+
+    if (recipients.length > 0) {
+      // 2A. SMTP Email Dispatch
+      try {
         const mailSetup = await getEmailTransporter();
         if (mailSetup) {
           for (const rec of recipients) {
@@ -376,14 +520,47 @@ async function notifyUsersAndSendEmail({
         } else {
           addCronLog('EMAIL_SKIP', 'SMTP settings not configured in settings table');
         }
+      } catch (mailErr) {
+        console.warn('Email dispatch error:', mailErr.message);
+        addCronLog('EMAIL_ERR', mailErr.message);
       }
-    } catch (mailErr) {
-      console.warn('Email dispatch error:', mailErr.message);
-      addCronLog('EMAIL_ERR', mailErr.message);
+
+      // 2B. OpenWA WhatsApp Dispatch (auto-picks each user's profile phone number)
+      try {
+        const waCfg = await getOpenWaSettings();
+        if (waCfg.enabled && waCfg.base_url && waCfg.session_id && waCfg.api_key) {
+          const waBodyText = stripHtmlForWhatsApp(emailHtml) || String(message || '').trim();
+          const sentPhones = [];
+          for (const rec of recipients) {
+            if (!rec.phone || !String(rec.phone).trim()) continue;
+            const fullText = `*${emailSubject || title}*\n\nHi ${rec.first_name},\n${waBodyText}\n\n— Task Manager`;
+            const idemKey = `tm_${type || 'n'}_${type_id || 0}_${action || 'a'}_${rec.id}_${Date.now()}`;
+            const waRes = await sendOpenWaText({
+              phone: rec.phone,
+              text: fullText,
+              idempotencyKey: idemKey,
+              cfgOverride: waCfg
+            });
+            if (waRes.ok) {
+              whatsappCount++;
+              cronState.whatsappDispatched++;
+              sentPhones.push(waRes.chatId);
+            } else {
+              addCronLog('WHATSAPP_ERR', `Failed to notify ${rec.first_name} (${rec.phone}): ${waRes.error}`);
+            }
+          }
+          if (sentPhones.length > 0) {
+            addCronLog('WHATSAPP', `Sent "${title}" to ${sentPhones.join(', ')}`);
+          }
+        }
+      } catch (waErr) {
+        console.warn('WhatsApp dispatch error:', waErr.message);
+        addCronLog('WHATSAPP_ERR', waErr.message);
+      }
     }
   }
 
-  return { notified: notifiedCount, emailed: emailedCount };
+  return { notified: notifiedCount, emailed: emailedCount, whatsapp: whatsappCount };
 }
 
 // Send Automatic Emails to Guests / External Clients
@@ -5379,6 +5556,85 @@ app.post('/api/email-settings/test', authMiddleware, async (req, res) => {
     res.json({ error: false, message: `Test email successfully sent to ${testTo}` });
   } catch (err) {
     res.status(500).json({ error: true, message: `SMTP Error: ${err.message}` });
+  }
+});
+
+// ==========================================
+// OPENWA WHATSAPP SETTINGS (Super Admin & Admin Only)
+// ==========================================
+app.get('/api/whatsapp-settings', authMiddleware, async (req, res) => {
+  if (!req.user.isStrictAdmin) {
+    return res.status(403).json({ error: true, message: 'Only Super Admin and Admin can view or modify WhatsApp Settings.' });
+  }
+  try {
+    const cfg = await getOpenWaSettings();
+    res.json({
+      error: false,
+      whatsappSettings: {
+        enabled: cfg.enabled,
+        base_url: cfg.base_url,
+        session_id: cfg.session_id,
+        api_key: cfg.api_key ? `••••${cfg.api_key.slice(-6)}` : '',
+        has_api_key: Boolean(cfg.api_key),
+        default_country_code: cfg.default_country_code
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+app.put('/api/whatsapp-settings', authMiddleware, async (req, res) => {
+  if (!req.user.isStrictAdmin) {
+    return res.status(403).json({ error: true, message: 'Only Super Admin and Admin can modify WhatsApp Settings.' });
+  }
+  try {
+    const saved = await saveOpenWaSettings(req.body || {});
+    addCronLog('WHATSAPP', `Updated OpenWA settings (${saved.enabled ? 'ENABLED' : 'DISABLED'} • ${saved.base_url})`);
+    res.json({
+      error: false,
+      message: saved.enabled ? 'OpenWA WhatsApp notifications saved & enabled!' : 'OpenWA WhatsApp settings saved (currently disabled).',
+      whatsappSettings: {
+        enabled: saved.enabled,
+        base_url: saved.base_url,
+        session_id: saved.session_id,
+        api_key: saved.api_key ? `••••${saved.api_key.slice(-6)}` : '',
+        has_api_key: Boolean(saved.api_key),
+        default_country_code: saved.default_country_code
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+app.post('/api/whatsapp-settings/test', authMiddleware, async (req, res) => {
+  if (!req.user.isStrictAdmin) {
+    return res.status(403).json({ error: true, message: 'Only Super Admin and Admin can test WhatsApp Settings.' });
+  }
+  try {
+    const phone = String(req.body?.phone || req.user.phone || '').trim();
+    if (!phone) {
+      return res.status(400).json({ error: true, message: 'Please enter a test phone number (e.g. 971551651588).' });
+    }
+    const text = String(req.body?.text || '✅ OpenWA Test Message from Task Manager — WhatsApp notifications are connected and working!').trim();
+    const result = await sendOpenWaText({
+      phone,
+      text,
+      idempotencyKey: `tm_test_${Date.now()}`
+    });
+    if (!result.ok) {
+      return res.status(400).json({ error: true, message: `OpenWA Error (${result.status || 'network'}): ${result.error}` });
+    }
+    cronState.whatsappDispatched++;
+    addCronLog('WHATSAPP', `Sent test WhatsApp message to ${result.chatId}`);
+    res.json({
+      error: false,
+      message: `Test WhatsApp message sent to ${result.chatId}!`,
+      messageId: result.messageId
+    });
+  } catch (err) {
+    res.status(500).json({ error: true, message: err.message });
   }
 });
 

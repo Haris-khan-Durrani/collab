@@ -1782,6 +1782,74 @@
               </div>
             </form>
           </div>
+
+          <!-- OPENWA WHATSAPP NOTIFICATIONS SETTINGS (Super Admin & Admin Only) -->
+          <div class="max-w-3xl bg-white dark:bg-slate-800 rounded-xl border border-emerald-200 dark:border-emerald-900/60 shadow-sm overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-emerald-50/60 dark:bg-emerald-950/20 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>💬 OpenWA WhatsApp Notifications (Super Admin &amp; Admin Only)</span>
+                </h3>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  Automatically sends WhatsApp notifications alongside Email for task assignments, recurring tasks, reminders, meetings, and @mentions — auto-picking each user's phone number from their profile.
+                </p>
+              </div>
+              <span id="wa-status-pill" class="px-2.5 py-1 rounded bg-slate-100 text-slate-600 border border-slate-200 text-xs font-semibold">Disabled</span>
+            </div>
+
+            <form id="whatsapp-settings-form" class="p-6 space-y-4 text-xs">
+              <label class="flex items-center gap-2.5 p-3 rounded-lg bg-emerald-50/50 dark:bg-slate-900 border border-emerald-200 dark:border-slate-700 cursor-pointer">
+                <input type="checkbox" id="wa-enabled" class="rounded text-emerald-600 w-4 h-4" />
+                <div>
+                  <span class="font-bold text-slate-900 dark:text-white">Enable Automatic WhatsApp Notifications via OpenWA</span>
+                  <div class="text-[11px] text-slate-500">When enabled, every Email notification also sends a WhatsApp message to the user's profile phone number.</div>
+                </div>
+              </label>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">OpenWA Endpoint Base URL *</label>
+                  <input type="text" id="wa-base-url" required placeholder="https://wa.docman.ae"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-mono" />
+                  <p class="text-[10px] text-slate-400 mt-1">Calls <code>POST {url}/api/sessions/{sessionId}/messages/send-text</code></p>
+                </div>
+
+                <div>
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Default Country Code</label>
+                  <input type="text" id="wa-country-code" placeholder="971" value="971"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-mono" />
+                  <p class="text-[10px] text-slate-400 mt-1">Auto-prepended for local numbers (e.g. <code>055...</code> → <code>97155...@c.us</code>)</p>
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Session ID *</label>
+                  <input type="text" id="wa-session-id" required placeholder="e.g. fbf38247-a14e-4563-a111-71a711e7b828"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-mono" />
+                </div>
+
+                <div class="sm:col-span-2">
+                  <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">X-API-Key *</label>
+                  <input type="password" id="wa-api-key" placeholder="owa_k1_... (leave unchanged to keep saved key)"
+                    class="w-full px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 font-mono" />
+                </div>
+              </div>
+
+              <div class="pt-4 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <input type="text" id="wa-test-phone" placeholder="Test phone (e.g. 971551651588)"
+                    class="px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 w-56 font-mono" />
+                  <button type="button" onclick="sendTestWhatsApp()" id="wa-test-btn"
+                    class="px-3.5 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold">
+                    💬 Send Test WhatsApp
+                  </button>
+                </div>
+
+                <button type="submit" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">
+                  Save OpenWA Settings
+                </button>
+              </div>
+            </form>
+          </div>
         </section>
 
       </div>
