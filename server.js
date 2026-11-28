@@ -3679,8 +3679,10 @@ app.get('/api/meetings', authMiddleware, async (req, res) => {
       return attendees.includes(uid) || Number(r.creator_id) === uid;
     });
 
+    const calCfg = await getHolidayCalendarConfig();
+    const meetingCal = calCfg.pause_recurring_meetings ? calCfg : null;
     const enrichedRules = visibleRules.map(r => {
-      const nextDate = computeNextRecurringSlotDate(r);
+      const nextDate = computeNextRecurringSlotDate(r, meetingCal);
       return {
         ...r,
         next_slot_date: nextDate,
@@ -3824,17 +3826,26 @@ app.post('/api/meetings', authMiddleware, async (req, res) => {
     };
 
     // If recurring (e.g. weekly/daily), pre-seed upcoming occurrences so the Weekly Calendar shows future grey upcoming slots immediately
+    // Automatically skips Weekly Off-Days (e.g. Sundays) & Public Holidays (e.g. UAE National Day) when enabled in Company Calendar
     let lastSeededDate = meeting_date;
     const futureCount = is_recurring ? Math.min(Math.max(Number(generate_future_weeks) || 3, 1), 6) : 0;
-    const curDateObj = new Date(meeting_date + 'T00:00:00');
+    const calCfg = is_recurring ? await getHolidayCalendarConfig() : null;
+    const skipOffDays = Boolean(calCfg && calCfg.pause_recurring_meetings);
+    let curDateStr = meeting_date;
 
     for (let i = 1; i <= futureCount; i++) {
-      if (recurring_frequency === 'daily') curDateObj.setDate(curDateObj.getDate() + 1);
-      else if (recurring_frequency === 'weekly') curDateObj.setDate(curDateObj.getDate() + 7);
-      else if (recurring_frequency === 'biweekly') curDateObj.setDate(curDateObj.getDate() + 14);
-      else if (recurring_frequency === 'monthly') curDateObj.setMonth(curDateObj.getMonth() + 1);
+      const dt = new Date(curDateStr + 'T12:00:00Z');
+      if (recurring_frequency === 'daily') dt.setUTCDate(dt.getUTCDate() + 1);
+      else if (recurring_frequency === 'weekly') dt.setUTCDate(dt.getUTCDate() + 7);
+      else if (recurring_frequency === 'biweekly') dt.setUTCDate(dt.getUTCDate() + 14);
+      else if (recurring_frequency === 'monthly') dt.setUTCMonth(dt.getUTCMonth() + 1);
+      else dt.setUTCDate(dt.getUTCDate() + 7);
 
-      const nextDateStr = curDateObj.toISOString().substring(0, 10);
+      let nextDateStr = dt.toISOString().substring(0, 10);
+      if (skipOffDays) {
+        nextDateStr = advanceToWorkingDay(nextDateStr, calCfg);
+      }
+      curDateStr = nextDateStr;
       lastSeededDate = nextDateStr;
       const nextStartDt = `${nextDateStr} ${start_time}:00`;
       const nextEndDt = `${nextDateStr} ${end_time}:00`;
@@ -4642,11 +4653,12 @@ app.post('/api/cron/recurring-tasks/:id/spawn-now', authMiddleware, async (req, 
       return res.status(404).json({ error: true, message: 'Recurring task rule not found' });
     }
     const rt = rows[0];
+    const calCfg = await getHolidayCalendarConfig();
     const nextDate = computeNextRecurringSlotDate({
       frequency: rt.frequency,
       last_generated_date: rt.last_created_at ? String(rt.last_created_at).substring(0, 10) : getLocalDateStr(),
       starts_from: rt.starts_from ? String(rt.starts_from).substring(0, 10) : getLocalDateStr()
-    });
+    }, calCfg.pause_recurring_tasks ? calCfg : null);
     const spawned = await spawnRecurringTaskOccurrence(rt, nextDate);
     cronState.recurringProcessed++;
     addCronLog('MANUAL_SPAWN', `Generated next ${rt.frequency} occurrence of "${rt.title}" (#${spawned.newTaskId}) for ${spawned.newStartDate}${spawned.slotLabel}`);

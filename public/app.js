@@ -1914,15 +1914,34 @@ window.updateMeetingNextSlotPreview = function() {
   if (freq === 'none' || !dateVal) { box.classList.add('hidden'); return; }
   const st = document.getElementById('mt-start-time').value;
   const en = document.getElementById('mt-end-time').value;
-  const d = new Date(dateVal + 'T00:00:00');
+  const skipOffDays = state.meta?.holidayCalendar?.pause_recurring_meetings !== false;
+  let curStr = dateVal;
   const slots = [];
+  const skipped = [];
+
   for (let i = 0; i < 3; i++) {
-    if (freq === 'daily') d.setDate(d.getDate() + 1);
-    else if (freq === 'weekly') d.setDate(d.getDate() + 7);
-    else if (freq === 'monthly') d.setMonth(d.getMonth() + 1);
-    slots.push(d.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }));
+    const dt = new Date(curStr + 'T12:00:00Z');
+    if (freq === 'daily') dt.setUTCDate(dt.getUTCDate() + 1);
+    else if (freq === 'weekly') dt.setUTCDate(dt.getUTCDate() + 7);
+    else if (freq === 'biweekly') dt.setUTCDate(dt.getUTCDate() + 14);
+    else if (freq === 'monthly') dt.setUTCMonth(dt.getUTCMonth() + 1);
+    else dt.setUTCDate(dt.getUTCDate() + 7);
+
+    let guard = 0;
+    while (skipOffDays && guard < 31) {
+      const checkStr = dt.toISOString().substring(0, 10);
+      const off = getClientOffDayInfo(checkStr);
+      if (!off.isOff) break;
+      const shortLbl = dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+      if (!skipped.includes(shortLbl)) skipped.push(shortLbl);
+      dt.setUTCDate(dt.getUTCDate() + 1);
+      guard++;
+    }
+    curStr = dt.toISOString().substring(0, 10);
+    slots.push(dt.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'UTC' }));
   }
-  txt.textContent = `${slots.join(' • ')}  (${formatTime12h(st)} – ${formatTime12h(en)})`;
+  const skippedNote = skipped.length ? ` • 🏖 Skipped: ${skipped.join(', ')}` : '';
+  txt.textContent = `${slots.join(' • ')} (${formatTime12h(st)} – ${formatTime12h(en)})${skippedNote}`;
   box.classList.remove('hidden');
 };
 
