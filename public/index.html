@@ -1834,6 +1834,79 @@
                 </div>
               </div>
 
+              <!-- Per-Event Notification Controls (Prevents WhatsApp Rate-Limit / Load) -->
+              <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div class="font-bold text-slate-900 dark:text-white">WhatsApp Notification Triggers (Control Load)</div>
+                    <div class="text-[11px] text-slate-500">Enable only the events you want on WhatsApp. Unchecked events still send via Email &amp; In-App.</div>
+                  </div>
+                  <div class="flex items-center gap-2 text-[11px]">
+                    <button type="button" onclick="toggleAllWaEvents(true)" class="text-emerald-600 font-semibold hover:underline">Enable All</button>
+                    <span class="text-slate-300">|</span>
+                    <button type="button" onclick="toggleAllWaEvents(false)" class="text-slate-500 font-semibold hover:underline">Disable All</button>
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="task_assigned" checked class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">New Task Assignments</div>
+                      <div class="text-[10px] text-slate-400">When a task is assigned to a user</div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="task_reminder" checked class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">Scheduled Task Reminders</div>
+                      <div class="text-[10px] text-slate-400">Daily/Weekly timed task reminders</div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="task_recurring" class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">Auto-Recurring Tasks Generated</div>
+                      <div class="text-[10px] text-slate-400">When cron creates a recurring task copy</div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="project_assigned" checked class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">New Project Assignments</div>
+                      <div class="text-[10px] text-slate-400">When a member is added to a project</div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="meeting_scheduled" checked class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">Meeting Invites &amp; Postponements</div>
+                      <div class="text-[10px] text-slate-400">New meetings or rescheduled times</div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="meeting_reminder" checked class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">Meeting Reminders (1-Day &amp; 30-Min)</div>
+                      <div class="text-[10px] text-slate-400">Advance &amp; starting-soon meeting alerts</div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="meeting_mom" class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">Minutes of Meeting (MoM) Published</div>
+                      <div class="text-[10px] text-slate-400">When meeting minutes are recorded</div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-2 p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer">
+                    <input type="checkbox" name="wa_event" value="mentions_broadcast" checked class="rounded text-emerald-600 mt-0.5" />
+                    <div>
+                      <div class="font-semibold text-slate-800 dark:text-slate-200">@Mentions &amp; Instant Notices</div>
+                      <div class="text-[10px] text-slate-400">Comment @tags &amp; manual broadcasts</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
               <div class="pt-4 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
                 <div class="flex items-center gap-2 flex-wrap">
                   <input type="text" id="wa-test-phone" placeholder="Test phone (e.g. 971551651588)"

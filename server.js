@@ -197,13 +197,47 @@ function advanceToWorkingDay(dateStr, calCfg) {
 // OPENWA WHATSAPP NOTIFICATION ENGINE
 // Stored in `settings` (variable = 'ceo_openwa_settings')
 // ==========================================
+const DEFAULT_OPENWA_EVENTS = {
+  task_assigned: true,
+  task_recurring: false,
+  task_reminder: true,
+  project_assigned: true,
+  meeting_scheduled: true,
+  meeting_reminder: true,
+  meeting_mom: false,
+  mentions_broadcast: true
+};
+
+function resolveOpenWaEventKey(type, action) {
+  const t = String(type || '').toLowerCase();
+  const a = String(action || '').toLowerCase();
+  if (a === 'recurring_assigned') return 'task_recurring';
+  if (a === 'reminder') return 'task_reminder';
+  if (a === 'mentioned' || a === 'executive_notice') return 'mentions_broadcast';
+  if (a === 'mom_published') return 'meeting_mom';
+  if (a === 'day_before_reminder' || a === 'starting_soon') return 'meeting_reminder';
+  if (t === 'meeting') return 'meeting_scheduled';
+  if (t === 'project') return 'project_assigned';
+  return 'task_assigned';
+}
+
+function normalizeOpenWaEvents(rawEvents) {
+  const src = (rawEvents && typeof rawEvents === 'object') ? rawEvents : {};
+  const out = {};
+  for (const [k, defVal] of Object.entries(DEFAULT_OPENWA_EVENTS)) {
+    out[k] = src[k] !== undefined ? Boolean(src[k]) : defVal;
+  }
+  return out;
+}
+
 async function getOpenWaSettings() {
   const defaults = {
     enabled: false,
     base_url: 'https://wa.docman.ae',
     session_id: '',
     api_key: '',
-    default_country_code: '971'
+    default_country_code: '971',
+    events: { ...DEFAULT_OPENWA_EVENTS }
   };
   try {
     const [rows] = await pool.query("SELECT value FROM settings WHERE variable = 'ceo_openwa_settings' LIMIT 1");
@@ -214,7 +248,8 @@ async function getOpenWaSettings() {
       base_url: String(parsed.base_url || 'https://wa.docman.ae').trim(),
       session_id: String(parsed.session_id || '').trim(),
       api_key: String(parsed.api_key || '').trim(),
-      default_country_code: String(parsed.default_country_code || '971').replace(/\D/g, '') || '971'
+      default_country_code: String(parsed.default_country_code || '971').replace(/\D/g, '') || '971',
+      events: normalizeOpenWaEvents(parsed.events)
     };
   } catch {
     return defaults;
@@ -230,7 +265,8 @@ async function saveOpenWaSettings(input) {
     base_url: String(input.base_url || 'https://wa.docman.ae').trim(),
     session_id: String(input.session_id || '').trim(),
     api_key: finalApiKey,
-    default_country_code: String(input.default_country_code || '971').replace(/\D/g, '') || '971'
+    default_country_code: String(input.default_country_code || '971').replace(/\D/g, '') || '971',
+    events: normalizeOpenWaEvents(input.events !== undefined ? input.events : current.events)
   };
   const jsonStr = JSON.stringify(clean);
   const [rows] = await pool.query("SELECT id FROM settings WHERE variable = 'ceo_openwa_settings' LIMIT 1");
@@ -525,10 +561,12 @@ async function notifyUsersAndSendEmail({
         addCronLog('EMAIL_ERR', mailErr.message);
       }
 
-      // 2B. OpenWA WhatsApp Dispatch (auto-picks each user's profile phone number)
+      // 2B. OpenWA WhatsApp Dispatch (respects per-event toggles to avoid WhatsApp load)
       try {
         const waCfg = await getOpenWaSettings();
-        if (waCfg.enabled && waCfg.base_url && waCfg.session_id && waCfg.api_key) {
+        const waEventKey = resolveOpenWaEventKey(type, action);
+        const isEventEnabled = waCfg.events ? Boolean(waCfg.events[waEventKey]) : true;
+        if (waCfg.enabled && isEventEnabled && waCfg.base_url && waCfg.session_id && waCfg.api_key) {
           const waBodyText = stripHtmlForWhatsApp(emailHtml) || String(message || '').trim();
           const sentPhones = [];
           for (const rec of recipients) {
@@ -5576,7 +5614,8 @@ app.get('/api/whatsapp-settings', authMiddleware, async (req, res) => {
         session_id: cfg.session_id,
         api_key: cfg.api_key ? `••••${cfg.api_key.slice(-6)}` : '',
         has_api_key: Boolean(cfg.api_key),
-        default_country_code: cfg.default_country_code
+        default_country_code: cfg.default_country_code,
+        events: cfg.events
       }
     });
   } catch (err) {
@@ -5600,7 +5639,8 @@ app.put('/api/whatsapp-settings', authMiddleware, async (req, res) => {
         session_id: saved.session_id,
         api_key: saved.api_key ? `••••${saved.api_key.slice(-6)}` : '',
         has_api_key: Boolean(saved.api_key),
-        default_country_code: saved.default_country_code
+        default_country_code: saved.default_country_code,
+        events: saved.events
       }
     });
   } catch (err) {

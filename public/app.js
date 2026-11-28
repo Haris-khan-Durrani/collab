@@ -4699,9 +4699,14 @@ window.loadEmailSettings = async function() {
       document.getElementById('wa-api-key').value = wa.api_key || '';
       document.getElementById('wa-country-code').value = wa.default_country_code || '971';
       document.getElementById('wa-test-phone').value = state.user?.phone || '';
+      const evMap = wa.events || {};
+      document.querySelectorAll('input[name="wa_event"]').forEach(cb => {
+        cb.checked = evMap[cb.value] !== undefined ? Boolean(evMap[cb.value]) : true;
+      });
       const pill = document.getElementById('wa-status-pill');
       if (pill) {
-        pill.textContent = wa.enabled ? 'Active' : 'Disabled';
+        const activeEventsCount = Object.values(evMap).filter(Boolean).length;
+        pill.textContent = wa.enabled ? `Active (${activeEventsCount}/8 triggers)` : 'Disabled';
         pill.className = wa.enabled
           ? 'px-2.5 py-1 rounded bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-semibold'
           : 'px-2.5 py-1 rounded bg-slate-100 text-slate-600 border border-slate-200 text-xs font-semibold';
@@ -4710,6 +4715,12 @@ window.loadEmailSettings = async function() {
   } catch (err) {
     showToast(err.message, 'error');
   }
+};
+
+window.toggleAllWaEvents = function(checked) {
+  document.querySelectorAll('input[name="wa_event"]').forEach(cb => {
+    cb.checked = Boolean(checked);
+  });
 };
 
 window.sendTestWhatsApp = async function() {
@@ -5368,12 +5379,17 @@ function bindEvents() {
   // OpenWA WhatsApp Settings Form
   document.getElementById('whatsapp-settings-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const events = {};
+    document.querySelectorAll('input[name="wa_event"]').forEach(cb => {
+      events[cb.value] = Boolean(cb.checked);
+    });
     const payload = {
       enabled: document.getElementById('wa-enabled').checked,
       base_url: document.getElementById('wa-base-url').value.trim(),
       session_id: document.getElementById('wa-session-id').value.trim(),
       api_key: document.getElementById('wa-api-key').value.trim(),
-      default_country_code: document.getElementById('wa-country-code').value.trim() || '971'
+      default_country_code: document.getElementById('wa-country-code').value.trim() || '971',
+      events
     };
     try {
       const res = await apiFetch('/api/whatsapp-settings', {
